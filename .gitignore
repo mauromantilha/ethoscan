@@ -19,3 +19,7 @@ data/
 *.qcow2
 .idea/
 .vscode/
+
+# Windows Alternate Data Streams (ADS) junk from NTFS/Zone.Identifier
+*:Zone.Identifier
+**/*:Zone.Identifier
