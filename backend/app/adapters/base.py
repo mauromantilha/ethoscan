@@ -23,6 +23,7 @@ class RawFinding:
     cve: str | None = None
     cwe: str | None = None
     remediation: str | None = None
+    mocked: bool = False
 
     def fingerprint(self) -> str:
         base = f"{self.tool}|{self.target}|{self.title}|{self.cve or ''}"
@@ -50,12 +51,16 @@ class BaseAdapter(ABC):
     def run(self, target: str, job_dir: Path, intensity: str = "safe") -> AdapterResult:
         settings = get_settings()
         if self.available():
-            return self._run_real(target, job_dir, intensity)
-        if settings.ethoscan_allow_mock:
-            return self._run_mock(target, job_dir, intensity)
-        raise RuntimeError(
-            f"Ferramenta '{self.binary}' não encontrada e ETHOSCAN_ALLOW_MOCK=false"
-        )
+            result = self._run_real(target, job_dir, intensity)
+        elif settings.ethoscan_allow_mock:
+            result = self._run_mock(target, job_dir, intensity)
+        else:
+            raise RuntimeError(
+                f"Ferramenta '{self.binary}' não encontrada e ETHOSCAN_ALLOW_MOCK=false"
+            )
+        for finding in result.findings:
+            finding.mocked = result.mocked
+        return result
 
     @abstractmethod
     def _run_real(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:

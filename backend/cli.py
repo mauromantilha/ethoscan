@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import time
+from pathlib import Path
 from typing import Optional
 
 import httpx
@@ -12,21 +14,35 @@ from rich.table import Table
 app = typer.Typer(help="Ethoscan CLI — pentest ético local-first")
 console = Console()
 
-DEFAULT_API = "http://localhost:8000"
+DEFAULT_API = os.environ.get("ETHOSCAN_API_URL", "http://localhost:8000")
+
+
+def _headers() -> dict[str, str]:
+    key = os.environ.get("ETHOSCAN_API_KEY", "").strip()
+    return {"X-API-Key": key} if key else {}
 
 
 def _client(api: str) -> httpx.Client:
-    return httpx.Client(base_url=api, timeout=60.0)
+    return httpx.Client(base_url=api, timeout=60.0, headers=_headers())
 
 
 @app.command()
 def health(api: str = DEFAULT_API) -> None:
-    """Verifica API e disponibilidade das tools."""
+    """Verifica API, Redis, auth e disponibilidade das tools."""
     with _client(api) as client:
         r = client.get("/health")
         r.raise_for_status()
         data = r.json()
     console.print_json(json.dumps(data))
+    tools = data.get("tools") or {}
+    missing = [n for n, info in tools.items() if not info.get("available")]
+    if missing:
+        if data.get("mock_allowed"):
+            console.print(f"[yellow]Tools em falta (mock): {', '.join(missing)}[/yellow]")
+        else:
+            console.print(f"[red]Tools em falta e mock off: {', '.join(missing)}[/red]")
+    else:
+        console.print("[green]Todas as 5 tools disponíveis (available=true)[/green]")
 
 
 @app.command("create")
@@ -68,30 +84,79 @@ def run_job(
     watch: bool = typer.Option(True, "--watch/--no-watch"),
     api: str = DEFAULT_API,
 ) -> None:
-    """Dispara pipeline F0–F6 para um engagement."""
+    """Dispara pipeline F0–F6 (via worker Redis) para um engagement."""
     with _client(api) as client:
         r = client.post(f"/api/engagements/{engagement_id}/jobs")
         if r.status_code >= 400:
             console.print(r.text)
             raise typer.Exit(1)
         job = r.json()["job"]
-        console.print(f"Job #{job['id']} enfileirado")
+        console.print(f"Job #{job['id']} enfileirado (fase {job['phase']})")
         if not watch:
             return
         while True:
             jr = client.get(f"/api/jobs/{job['id']}")
             jr.raise_for_status()
             j = jr.json()
+            runs = j.get("tool_runs") or {}
+            modes = " ".join(
+                f"{name}={'mock' if info.get('mocked') else 'real'}" for name, info in runs.items()
+            )
             console.print(
-                f"status={j['status']} phase={j['phase']} progress={j['progress']}% tool={j.get('current_tool')}"
+                f"status={j['status']} phase={j['phase']} progress={j['progress']}% "
+                f"tool={j.get('current_tool')} {modes}"
             )
             if j["status"] in {"completed", "failed", "cancelled"}:
                 if j.get("error"):
                     console.print(f"[red]{j['error']}[/red]")
                 if j.get("report_path"):
-                    console.print(f"Relatório: {j['report_path']}")
+                    console.print(f"Relatório (disco): {j['report_path']}")
+                    console.print(
+                        f"Download: {api.rstrip('/')}/api/jobs/{j['id']}/report "
+                        f"| ou: python cli.py report {j['id']} --out report.html"
+                    )
                 break
             time.sleep(1.5)
+
+
+@app.command("cancel")
+def cancel_job(job_id: int = typer.Argument(...), api: str = DEFAULT_API) -> None:
+    """Cancela um job pending/running."""
+    with _client(api) as client:
+        r = client.post(f"/api/jobs/{job_id}/cancel")
+        if r.status_code >= 400:
+            console.print(r.text)
+            raise typer.Exit(1)
+        j = r.json()
+    console.print(f"Job #{j['id']} → {j['status']}")
+
+
+@app.command("report")
+def report_cmd(
+    job_id: int = typer.Argument(...),
+    out: Optional[str] = typer.Option(None, "--out", "-o", help="Gravar HTML neste path"),
+    api: str = DEFAULT_API,
+) -> None:
+    """Mostra path do relatório e/ou descarrega o HTML."""
+    with _client(api) as client:
+        jr = client.get(f"/api/jobs/{job_id}")
+        if jr.status_code >= 400:
+            console.print(jr.text)
+            raise typer.Exit(1)
+        j = jr.json()
+        if j.get("report_path"):
+            console.print(f"Path: {j['report_path']}")
+        rr = client.get(f"/api/jobs/{job_id}/report")
+        if rr.status_code >= 400:
+            console.print(rr.text)
+            raise typer.Exit(1)
+        if out:
+            Path(out).write_bytes(rr.content)
+            console.print(f"[green]Guardado em {out}[/green]")
+        else:
+            console.print(
+                f"URL: {api.rstrip('/')}/api/jobs/{job_id}/report — use --out report.html para gravar"
+            )
 
 
 @app.command("findings")
@@ -113,8 +178,16 @@ def list_findings(
     table.add_column("Título")
     table.add_column("Alvo")
     table.add_column("Tool")
+    table.add_column("Modo")
     for f in rows:
-        table.add_row(str(f["id"]), f["severity"], f["title"], f["target"], f["tool"])
+        table.add_row(
+            str(f["id"]),
+            f["severity"],
+            f["title"],
+            f["target"],
+            f["tool"],
+            "mock" if f.get("mocked") else "real",
+        )
     console.print(table)
 
 

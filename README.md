@@ -1,26 +1,31 @@
 # Ethoscan
 
-Orquestrador local de **pentest ético** (CLI + API + dashboard).
+Orquestrador local de **pentest ético** (CLI + API + dashboard + worker).
 
-- Pipeline **F0–F6** (autorização → recon → enum → web → vuln → correlação → relatório)
+- Pipeline **F0–F6** (gate RoE/escopo/tools → recon → enum → web → vuln → correlação → relatório)
 - Escopo allowlist + RoE obrigatório + audit log
 - Adapters: Nmap, WhatWeb, Gobuster, sslscan, Nuclei
-- Intensidade padrão recomendada: **`safe`** (descoberta/detecção conservadora)
+- Worker dedicado via **Redis** (a API não bloqueia em scans longos)
+- Intensidade padrão recomendada: **`safe`**
+- Auth mínima por API key + CORS restrito à UI
 
 ## Ambientes de execução
 
 ### 1. Host Kali Linux (caminho oficial para scans reais)
 
-Use **Kali Linux** como host do operador, com as tools nativas no `PATH` (`nmap`, `whatweb`, `gobuster`, `sslscan`, `nuclei`, …).
+Ver checklist completo em [docs/kali-setup.md](docs/kali-setup.md).
 
-Nesse cenário:
+Binários mínimos: `nmap`, `whatweb`, `gobuster`, `sslscan`, `nuclei` (+ wordlist para Gobuster).
 
-- Defina `ETHOSCAN_ALLOW_MOCK=false` para exigir tools reais.
-- Scans reais só fazem sentido com o binário instalado e no escopo autorizado.
+```bash
+ETHOSCAN_ALLOW_MOCK=false
+```
+
+- Tool no PATH → scan **real** (`mocked=false`)
+- Tool em falta + mock off → **falha** no gate F0
+- Tool em falta + `ETHOSCAN_ALLOW_MOCK=true` → **mock** (`mocked=true` em findings/jobs)
 
 ### 2. Dev sem tools / Docker (mock permitido)
-
-Em máquinas sem as tools Kali (ou em containers de desenvolvimento), o **modo mock** é aceitável:
 
 ```bash
 ETHOSCAN_ALLOW_MOCK=true
@@ -32,92 +37,136 @@ O mock não gera tráfego real de scan; serve para exercitar API, UI, pipeline e
 
 | Modo | Uso |
 |------|-----|
-| **`safe`** (padrão e recomendado) | Assessment ético conservador; preferência para o dia a dia. |
-| `standard` | Lab próprio, com RoE explícito e necessidade de cobertura um pouco maior. |
-| `aggressive` | Apenas lab próprio / ambiente controlado, RoE explícito e consciência do impacto. |
+| **`safe`** (padrão) | Assessment ético conservador |
+| `standard` | Lab próprio, RoE explícito |
+| `aggressive` | Apenas lab controlado |
 
-O enum de intensidade permanece; a postura pública do produto é **ética e não agressiva por omissão** — `safe` é o default na API, CLI e UI.
+## Arquitetura (API + worker)
+
+```
+UI / CLI  →  API (FastAPI)  →  Redis queue  →  Worker (python -m app.worker)
+                                ↑ cancel flags
+```
+
+- A API **enfileira** jobs; o **worker** executa o pipeline fora do processo HTTP
+- Cancelamento: `POST /api/jobs/{id}/cancel` (CLI/UI) — pending cancela já; running observa o flag entre fases/tools
+- Limite single-node: 1 worker ≈ 1 job de cada vez; a API permanece responsiva
+
+## F0 — gate explícito
+
+`F0` valida RoE, escopo allowlist e disponibilidade das tools (política de mock) **antes** de F1–F6. Progresso e `tool_runs` ficam visíveis na API/UI.
 
 ## Subir local (sem Docker)
 
-Neste host o default é **SQLite** (não precisa Postgres).
-
 ```bash
-cd ~/Projetos/ethoscan
 cp .env.example .env
+# Lab sem auth: ETHOSCAN_DISABLE_AUTH=true
+# Ou defina ETHOSCAN_API_KEY=... e a mesma key em NEXT_PUBLIC_API_KEY / ETHOSCAN_API_KEY (CLI)
 
-# API — preferir localhost no uso diário em Kali
+# Redis (obrigatório para a fila)
+docker run -d --name ethoscan-redis -p 6379:6379 redis:7-alpine
+
+# API
 cd backend
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
+# Worker (outro terminal)
+cd backend && source .venv/bin/activate
+python -m app.worker
+
 # Dashboard (outro terminal)
-cd ~/Projetos/ethoscan/frontend
-npm install
-npm run dev
+cd frontend && npm install && npm run dev
 ```
 
 - API: http://localhost:8000/docs  
 - UI: http://localhost:3000  
+- Health (público): http://localhost:8000/health  
 
-### Com Docker (quando tiver permissão no socket)
+### Com Docker
 
 ```bash
-# Ajuste DATABASE_URL no .env para Postgres e:
 docker compose up --build
+# sobe postgres + redis + api + worker + web
 ```
 
 ## CLI
 
 ```bash
 cd backend && source .venv/bin/activate
+export ETHOSCAN_API_KEY=change-me-local   # se auth ativa
+
 python cli.py health
 python cli.py create -n "Lab" -t scanme.nmap.org --ack
 python cli.py run 1
 python cli.py findings -e 1
+python cli.py report 1 --out report.html
+python cli.py cancel 1
 ```
+
+## Relatórios
+
+- Path em disco: `job.report_path`
+- Download: `GET /api/jobs/{id}/report` (UI botão / CLI `report`)
+
+## Migrações
+
+SQLite local continua a funcionar. Alembic cobre evolução de schema (`backend/alembic/`).
+
+```bash
+cd backend && alembic upgrade head
+```
+
+`init_db()` faz `create_all` + `upgrade head` (best-effort) e garante colunas novas em SQLite.
+
+## Testes smoke (sem Kali)
+
+```bash
+./scripts/smoke.sh
+# ou: cd backend && ETHOSCAN_DISABLE_AUTH=true pytest tests/test_smoke.py -q
+```
+
+Cobertura: RoE negado, alvo inválido, create→run (mock)→findings→report, cancel, auth.
+
+## Aceitação Kali (manual)
+
+Ver [docs/kali-acceptance.md](docs/kali-acceptance.md).
 
 ## Segurança do próprio Ethoscan
 
-A API atual é **local-first e sem autenticação**. Trate o Ethoscan como ferramenta de operador na sua máquina/lab, não como serviço exposto.
+**Default seguro**
 
-**Preferências de bind**
+- Defina `ETHOSCAN_API_KEY` (header `X-API-Key` na API; CLI via env; UI via `NEXT_PUBLIC_API_KEY`)
+- CORS apenas para `ETHOSCAN_CORS_ORIGINS` (default `http://localhost:3000`) — **não** usa `*`
+- Bind diário: `127.0.0.1`
 
-- Uso diário em Kali: ligue a API a **localhost** (`127.0.0.1`).
-- `0.0.0.0` apenas em lab isolado, quando precisar aceder a partir de outra máquina na mesma rede controlada.
+**Lab local sem auth**
 
-**Riscos atuais (código presente)**
+```bash
+ETHOSCAN_DISABLE_AUTH=true
+```
 
-- Sem autenticação na API.
-- CORS configurado com `allow_origins=["*"]`.
-- No `docker-compose.yml`, Postgres usa credenciais locais de exemplo `ethoscan` / `ethoscan` — só para lab local, nunca para produção ou rede partilhada.
+Só é aceitável em lab isolado. Sem key e sem `DISABLE_AUTH` em `mode=local`, a API arranca mas regista aviso. Fora de `local`, falta de key é erro de configuração.
 
 **Checklist — não publicar casualmente na LAN**
 
 - [ ] Porta **8000** (API)
 - [ ] Porta **3000** (dashboard)
 - [ ] Porta **5432** (Postgres do compose)
-- [ ] Porta **6379** (Redis do compose)
+- [ ] Porta **6379** (Redis)
 
-Auth de API e endurecimento de CORS ficam para iterações futuras; até lá, isole a exposição.
+No compose, Postgres usa credenciais de exemplo `ethoscan`/`ethoscan` — só lab local.
 
 ## Ética e responsabilidade
 
-- Use **somente** em alvos autorizados, projetos próprios ou labs com permissão explícita.
-- A responsabilidade pelo escopo, RoE e impacto é do **operador**.
-- Alvos de exemplo de laboratório (ex.: `scanme.nmap.org`) são aceitáveis quando o dono do serviço os disponibiliza para testes.
-- Não use o Ethoscan para reconhecimento ou exploração sem autorização.
+- Use **somente** em alvos autorizados, projetos próprios ou labs com permissão explícita
+- A responsabilidade pelo escopo, RoE e impacto é do **operador**
+- Controles Purple (RoE + allowlist) não são enfraquecidos por estas alterações
 
 ## O que nunca commitar
 
-Checklist — estes caminhos/artefactos **não** devem ir para o repositório:
-
-- [ ] `.env` (segredos e configuração local) — já coberto no `.gitignore`
-- [ ] `artifacts/` (DB local, outputs de jobs, relatórios) — já coberto no `.gitignore`
-- [ ] Relatórios reais de engagements / clientes
-- [ ] Credenciais, tokens, chaves, dumps ou evidências de alvos reais
-- [ ] Ficheiros `*:Zone.Identifier` (lixo ADS do Windows) — já cobertos no `.gitignore`
-
-Antes de `git add` / push, confirme que nenhum destes caminhos aparece no staging.
+- [ ] `.env`
+- [ ] `artifacts/`
+- [ ] Relatórios reais / credenciais / evidências de alvos
+- [ ] Ficheiros `*:Zone.Identifier`

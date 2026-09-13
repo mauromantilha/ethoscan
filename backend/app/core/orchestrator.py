@@ -2,19 +2,21 @@ from __future__ import annotations
 
 import traceback
 from datetime import datetime, timezone
-from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from app.adapters import all_adapters
+from app.adapters import REQUIRED_TOOLS, all_adapters, tools_status
 from app.config import get_settings
 from app.core.authz import assert_in_scope, assert_roe
 from app.core.correlator import correlate
 from app.core.reports import write_html_report
 from app.models import AuditEvent, Engagement, Finding, Job, JobStatus
+from app.queue import clear_cancel, is_cancel_requested
 
 
+# F0 = gate explícito (RoE + escopo + tools). F1–F6 = execução.
 PHASES = [
+    ("F0", "gate", []),
     ("F1", "recon", ["whatweb"]),
     ("F2", "enum", ["nmap", "sslscan"]),
     ("F3", "web-discovery", ["gobuster"]),
@@ -22,6 +24,20 @@ PHASES = [
     ("F5", "correlate", []),
     ("F6", "report", []),
 ]
+
+PHASE_LABELS = {
+    "F0": "Gate (RoE, escopo, tools)",
+    "F1": "Recon (WhatWeb)",
+    "F2": "Enum (Nmap, sslscan)",
+    "F3": "Web discovery (Gobuster)",
+    "F4": "Vuln (Nuclei)",
+    "F5": "Correlação",
+    "F6": "Relatório",
+}
+
+
+class JobCancelled(Exception):
+    """Cancelamento solicitado durante o pipeline."""
 
 
 def audit(db: Session, engagement_id: int | None, action: str, detail: dict | None = None) -> None:
@@ -36,6 +52,27 @@ def audit(db: Session, engagement_id: int | None, action: str, detail: dict | No
     db.commit()
 
 
+def _check_cancel(db: Session, job: Job) -> None:
+    db.refresh(job)
+    if job.status == JobStatus.cancelled or is_cancel_requested(job.id):
+        raise JobCancelled(f"Job #{job.id} cancelado")
+
+
+def _mark_cancelled(db: Session, job: Job, engagement: Engagement | None) -> None:
+    job.status = JobStatus.cancelled
+    job.finished_at = datetime.now(timezone.utc)
+    job.current_tool = None
+    job.error = job.error or "Cancelado pelo operador"
+    db.commit()
+    clear_cancel(job.id)
+    audit(
+        db,
+        engagement.id if engagement else None,
+        "job_cancelled",
+        {"job_id": job.id, "phase": job.phase, "progress": job.progress},
+    )
+
+
 def run_pipeline(db: Session, job_id: int) -> None:
     settings = get_settings()
     job = db.get(Job, job_id)
@@ -45,40 +82,47 @@ def run_pipeline(db: Session, job_id: int) -> None:
     if not engagement:
         return
 
-    try:
-        assert_roe(engagement.roe_acknowledged)
-        for target in engagement.scope_targets:
-            assert_in_scope(target, engagement.scope_targets)
+    if job.status == JobStatus.cancelled or is_cancel_requested(job.id):
+        _mark_cancelled(db, job, engagement)
+        return
 
+    try:
         job.status = JobStatus.running
         job.started_at = datetime.now(timezone.utc)
-        job.phase = "F1"
-        job.progress = 5
+        job.phase = "F0"
+        job.progress = 2
+        job.tool_runs = dict(job.tool_runs or {})
         db.commit()
         audit(db, engagement.id, "job_started", {"job_id": job.id})
+
+        _run_f0_gate(db, job, engagement)
+        _check_cancel(db, job)
 
         job_dir = settings.artifacts_path / f"engagement-{engagement.id}" / f"job-{job.id}"
         job_dir.mkdir(parents=True, exist_ok=True)
 
         adapters = {a.name: a for a in all_adapters()}
         raw_findings = []
-        total_steps = sum(len(tools) for _, _, tools in PHASES if tools) + 2
+        tool_steps = sum(len(tools) for phase, _, tools in PHASES if phase != "F0" and tools)
+        total_steps = tool_steps + 2
         step = 0
 
         for phase, _label, tools in PHASES:
+            if phase == "F0":
+                continue
+
+            _check_cancel(db, job)
             job.phase = phase
             db.commit()
 
             if phase == "F5":
-                correlated = correlate(raw_findings)
-                raw_findings = correlated
+                raw_findings = correlate(raw_findings)
                 step += 1
-                job.progress = min(95, int(step / total_steps * 100))
+                job.progress = min(95, int(10 + step / total_steps * 85))
                 db.commit()
                 continue
 
             if phase == "F6":
-                # persist findings then report
                 _persist_findings(db, engagement, job, raw_findings)
                 findings = (
                     db.query(Finding)
@@ -93,7 +137,9 @@ def run_pipeline(db: Session, job_id: int) -> None:
                 job.phase = "F6"
                 job.status = JobStatus.completed
                 job.finished_at = datetime.now(timezone.utc)
+                job.current_tool = None
                 db.commit()
+                clear_cancel(job.id)
                 audit(
                     db,
                     engagement.id,
@@ -103,12 +149,22 @@ def run_pipeline(db: Session, job_id: int) -> None:
                 continue
 
             for tool_name in tools:
+                _check_cancel(db, job)
                 job.current_tool = tool_name
                 db.commit()
                 adapter = adapters[tool_name]
                 for target in engagement.scope_targets:
                     assert_in_scope(target, engagement.scope_targets)
                     result = adapter.run(target, job_dir, engagement.intensity.value)
+                    runs = dict(job.tool_runs or {})
+                    prev = runs.get(tool_name, {})
+                    runs[tool_name] = {
+                        "mocked": bool(prev.get("mocked")) or result.mocked,
+                        "available": adapter.available(),
+                        "last_target": target,
+                        "command": (result.command or [])[:8],
+                    }
+                    job.tool_runs = runs
                     audit(
                         db,
                         engagement.id,
@@ -123,22 +179,71 @@ def run_pipeline(db: Session, job_id: int) -> None:
                     )
                     raw_findings.extend(result.findings)
                 step += 1
-                job.progress = min(90, int(step / total_steps * 100))
+                job.progress = min(90, int(10 + step / total_steps * 85))
                 db.commit()
 
         job.current_tool = None
         db.commit()
+    except JobCancelled:
+        _mark_cancelled(db, job, engagement)
     except Exception as exc:  # noqa: BLE001
         job.status = JobStatus.failed
         job.error = str(exc)
         job.finished_at = datetime.now(timezone.utc)
+        job.current_tool = None
         db.commit()
+        clear_cancel(job.id)
         audit(
             db,
             engagement.id if engagement else None,
             "job_failed",
             {"job_id": job_id, "error": str(exc), "trace": traceback.format_exc()[-2000:]},
         )
+
+
+def _run_f0_gate(db: Session, job: Job, engagement: Engagement) -> None:
+    """Gate F0: RoE, escopo e disponibilidade de tools (política de mock)."""
+    settings = get_settings()
+    job.phase = "F0"
+    job.current_tool = "gate"
+    job.progress = 5
+    db.commit()
+
+    assert_roe(engagement.roe_acknowledged)
+    for target in engagement.scope_targets:
+        assert_in_scope(target, engagement.scope_targets)
+
+    status = tools_status()
+    missing = [name for name in REQUIRED_TOOLS if not status.get(name, {}).get("available")]
+    if missing and not settings.ethoscan_allow_mock:
+        raise RuntimeError(
+            f"F0 gate: tools em falta e mock desligado: {', '.join(missing)}. "
+            "Instale os binários Kali ou defina ETHOSCAN_ALLOW_MOCK=true."
+        )
+
+    tool_runs = dict(job.tool_runs or {})
+    for name in REQUIRED_TOOLS:
+        info = status.get(name, {})
+        tool_runs[name] = {
+            "mocked": bool(info.get("will_mock")),
+            "available": bool(info.get("available")),
+            "mode": info.get("mode", "unavailable"),
+        }
+    job.tool_runs = tool_runs
+    job.progress = 10
+    job.current_tool = None
+    db.commit()
+    audit(
+        db,
+        engagement.id,
+        "f0_gate_passed",
+        {
+            "job_id": job.id,
+            "missing_tools": missing,
+            "mock_allowed": settings.ethoscan_allow_mock,
+            "tool_runs": tool_runs,
+        },
+    )
 
 
 def _persist_findings(
@@ -170,6 +275,7 @@ def _persist_findings(
                 cwe=item.cwe,
                 remediation=item.remediation,
                 fingerprint=fp,
+                mocked=bool(getattr(item, "mocked", False)),
             )
         )
         existing.add(fp)

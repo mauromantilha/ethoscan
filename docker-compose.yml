@@ -37,6 +37,9 @@ services:
       ETHOSCAN_MODE: local
       ETHOSCAN_ALLOW_MOCK: "true"
       ETHOSCAN_ARTIFACTS_DIR: /app/artifacts
+      ETHOSCAN_CORS_ORIGINS: http://localhost:3000
+      ETHOSCAN_DISABLE_AUTH: ${ETHOSCAN_DISABLE_AUTH:-true}
+      ETHOSCAN_API_KEY: ${ETHOSCAN_API_KEY:-}
     ports:
       - "8000:8000"
     volumes:
@@ -49,12 +52,40 @@ services:
         condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://ethoscan:ethoscan@postgres:5432/ethoscan
+      REDIS_URL: redis://redis:6379/0
+      ETHOSCAN_MODE: local
+      ETHOSCAN_ALLOW_MOCK: "true"
+      ETHOSCAN_ARTIFACTS_DIR: /app/artifacts
+      ETHOSCAN_DISABLE_AUTH: ${ETHOSCAN_DISABLE_AUTH:-true}
+      ETHOSCAN_API_KEY: ${ETHOSCAN_API_KEY:-}
+    volumes:
+      - ./artifacts:/app/artifacts
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    # Limite single-node: 1 worker processa 1 job de cada vez; a API permanece responsiva
+    command: python -m app.worker
+
   web:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_API_KEY: ${ETHOSCAN_API_KEY:-}
     ports:
       - "3000:3000"
     volumes:
