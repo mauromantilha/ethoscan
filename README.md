@@ -162,7 +162,7 @@ No compose, Postgres usa credenciais de exemplo `ethoscan`/`ethoscan` — só la
 
 - Use **somente** em alvos autorizados, projetos próprios ou labs com permissão explícita
 - A responsabilidade pelo escopo, RoE e impacto é do **operador**
-- Controles Purple (RoE + allowlist) não são enfraquecidos por estas alterações
+- Controles éticos (RoE + allowlist) não são enfraquecidos por estas alterações
 
 ## O que nunca commitar
 

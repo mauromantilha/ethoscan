@@ -1,6 +1,6 @@
 # Runbook de aceitação Kali (manual)
 
-Objetivo: validar Ethoscan num Kali com tools reais, sem regressões Purple (RoE/allowlist).
+Objetivo: validar Ethoscan num Kali com tools reais, sem regressões nos controlos éticos (RoE/allowlist).
 
 ## Pré-requisitos
 
