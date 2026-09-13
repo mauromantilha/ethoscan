@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Ethoscan",
-  description: "Orquestrador de pentest ético",
+  description: "Orquestrador local de pentest ético — modo safe recomendado",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

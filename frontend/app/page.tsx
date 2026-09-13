@@ -131,7 +131,8 @@ export default function HomePage() {
       <h1 className="brand">Ethoscan</h1>
       <p className="tagline">
         Orquestrador local de pentest ético. Escopo allowlist, RoE obrigatório, pipeline F0–F6 e
-        relatório — tools reais quando existirem, mock no host.
+        relatório. Intensidade recomendada: <strong>safe</strong>. Scans reais no Kali Linux;
+        mock quando as tools não estiverem no PATH.
       </p>
 
       <div className="grid">
@@ -152,15 +153,15 @@ export default function HomePage() {
               />
             </div>
             <div className="field">
-              <label htmlFor="intensity">Intensidade</label>
+              <label htmlFor="intensity">Intensidade (recomendado: safe)</label>
               <select
                 id="intensity"
                 value={intensity}
                 onChange={(e) => setIntensity(e.target.value)}
               >
-                <option value="safe">safe</option>
-                <option value="standard">standard</option>
-                <option value="aggressive">aggressive</option>
+                <option value="safe">safe — recomendado</option>
+                <option value="standard">standard — lab próprio / RoE explícito</option>
+                <option value="aggressive">aggressive — lab controlado apenas</option>
               </select>
             </div>
             <label className="checkbox">

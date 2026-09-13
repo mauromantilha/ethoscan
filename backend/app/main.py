@@ -18,7 +18,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="Ethoscan",
-    description="Orquestrador de pentest ético (Assess) — local-first",
+    description="Orquestrador de pentest ético (Assess) — local-first; intensidade safe recomendada",
     version="0.1.0",
     lifespan=lifespan,
 )

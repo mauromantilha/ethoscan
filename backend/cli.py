@@ -33,7 +33,12 @@ def health(api: str = DEFAULT_API) -> None:
 def create_engagement(
     name: str = typer.Option(..., "--name", "-n"),
     target: list[str] = typer.Option(..., "--target", "-t", help="Alvo no escopo (repetível)"),
-    intensity: str = typer.Option("safe", "--intensity", "-i"),
+    intensity: str = typer.Option(
+        "safe",
+        "--intensity",
+        "-i",
+        help="safe (recomendado), standard ou aggressive (lab/RoE explícito)",
+    ),
     acknowledge: bool = typer.Option(False, "--ack", help="Confirma RoE/autorização"),
     api: str = DEFAULT_API,
 ) -> None:
