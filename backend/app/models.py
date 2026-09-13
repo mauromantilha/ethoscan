@@ -65,6 +65,8 @@ class Job(Base):
     progress: Mapped[int] = mapped_column(Integer, default=0)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     report_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Por tool: {"nmap": {"mocked": true, "available": false}, ...}
+    tool_runs: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -90,6 +92,7 @@ class Finding(Base):
     cwe: Mapped[str | None] = mapped_column(String(64), nullable=True)
     remediation: Mapped[str | None] = mapped_column(Text, nullable=True)
     fingerprint: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    mocked: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     engagement: Mapped[Engagement] = relationship(back_populates="findings")

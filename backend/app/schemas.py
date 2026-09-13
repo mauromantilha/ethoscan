@@ -45,6 +45,7 @@ class JobOut(BaseModel):
     progress: int
     error: str | None
     report_path: str | None
+    tool_runs: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
@@ -67,6 +68,7 @@ class FindingOut(BaseModel):
     cwe: str | None
     remediation: str | None
     fingerprint: str
+    mocked: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -81,4 +83,8 @@ class HealthOut(BaseModel):
     status: str
     mode: str
     mock_allowed: bool
+    auth_enabled: bool
+    redis_ok: bool
+    worker_hint: str
     tools: dict[str, Any]
+    phases: dict[str, str]

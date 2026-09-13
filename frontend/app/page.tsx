@@ -1,6 +1,24 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+
+type ToolInfo = {
+  binary: string;
+  available: boolean;
+  will_mock?: boolean;
+  mode?: string;
+};
+
+type Health = {
+  status: string;
+  mode: string;
+  mock_allowed: boolean;
+  auth_enabled: boolean;
+  redis_ok: boolean;
+  worker_hint: string;
+  tools: Record<string, ToolInfo>;
+  phases: Record<string, string>;
+};
 
 type Engagement = {
   id: number;
@@ -18,6 +36,7 @@ type Job = {
   current_tool: string | null;
   error: string | null;
   report_path: string | null;
+  tool_runs: Record<string, { mocked?: boolean; available?: boolean; mode?: string }>;
 };
 
 type Finding = {
@@ -28,11 +47,22 @@ type Finding = {
   target: string;
   tool: string;
   description: string;
+  mocked?: boolean;
 };
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
+const PHASE_ORDER = ["F0", "F1", "F2", "F3", "F4", "F5", "F6"];
+
+function headers(json = false): HeadersInit {
+  const h: Record<string, string> = {};
+  if (json) h["Content-Type"] = "application/json";
+  if (API_KEY) h["X-API-Key"] = API_KEY;
+  return h;
+}
 
 export default function HomePage() {
+  const [health, setHealth] = useState<Health | null>(null);
   const [engagements, setEngagements] = useState<Engagement[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [findings, setFindings] = useState<Finding[]>([]);
@@ -46,17 +76,26 @@ export default function HomePage() {
 
   const refresh = useCallback(async () => {
     try {
-      const [e, j, f] = await Promise.all([
-        fetch(`${API}/api/engagements`).then((r) => r.json()),
-        fetch(`${API}/api/jobs`).then((r) => r.json()),
-        fetch(`${API}/api/findings`).then((r) => r.json()),
+      const healthRes = await fetch(`${API}/health`);
+      const h = await healthRes.json();
+      setHealth(h);
+
+      const [eRes, jRes, fRes] = await Promise.all([
+        fetch(`${API}/api/engagements`, { headers: headers() }),
+        fetch(`${API}/api/jobs`, { headers: headers() }),
+        fetch(`${API}/api/findings`, { headers: headers() }),
       ]);
-      setEngagements(e);
-      setJobs(j);
-      setFindings(f);
-      setStatus("API conectada");
-    } catch {
-      setStatus("API indisponível — suba o backend em :8000");
+      if (!eRes.ok) throw new Error(`engagements ${eRes.status}`);
+      setEngagements(await eRes.json());
+      setJobs(await jRes.json());
+      setFindings(await fRes.json());
+      setStatus(
+        h.redis_ok
+          ? `API ok · Redis ok · auth ${h.auth_enabled ? "on" : "off"} · mock ${h.mock_allowed ? "on" : "off"}`
+          : `API ok · Redis DOWN — ${h.worker_hint}`,
+      );
+    } catch (err) {
+      setStatus(`API indisponível (:8000) — ${String(err)}`);
     }
   }, []);
 
@@ -80,7 +119,7 @@ export default function HomePage() {
         .filter(Boolean);
       const res = await fetch(`${API}/api/engagements`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: headers(true),
         body: JSON.stringify({
           name,
           scope_targets,
@@ -105,11 +144,12 @@ export default function HomePage() {
     try {
       const res = await fetch(`${API}/api/engagements/${engagementId}/jobs`, {
         method: "POST",
+        headers: headers(),
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       setSelected(engagementId);
-      setStatus(`Job #${data.job.id} iniciado`);
+      setStatus(`Job #${data.job.id} enfileirado no worker`);
       await refresh();
     } catch (err) {
       setStatus(String(err));
@@ -118,9 +158,45 @@ export default function HomePage() {
     }
   }
 
-  const filteredFindings = findings.filter((f) =>
-    selected ? f.engagement_id === selected : true,
+  async function cancelJob(jobId: number) {
+    setBusy(true);
+    try {
+      const res = await fetch(`${API}/api/jobs/${jobId}/cancel`, {
+        method: "POST",
+        headers: headers(),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setStatus(`Cancelamento pedido para job #${jobId}`);
+      await refresh();
+    } catch (err) {
+      setStatus(String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function downloadReport(jobId: number) {
+    try {
+      const res = await fetch(`${API}/api/jobs/${jobId}/report`, { headers: headers() });
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `ethoscan-report-job-${jobId}.html`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setStatus(String(err));
+    }
+  }
+
+  const filteredFindings = useMemo(
+    () => findings.filter((f) => (selected ? f.engagement_id === selected : true)),
+    [findings, selected],
   );
+
+  const toolEntries = health ? Object.entries(health.tools || {}) : [];
 
   return (
     <main className="shell">
@@ -131,9 +207,25 @@ export default function HomePage() {
       <h1 className="brand">Ethoscan</h1>
       <p className="tagline">
         Orquestrador local de pentest ético. Escopo allowlist, RoE obrigatório, pipeline F0–F6 e
-        relatório. Intensidade recomendada: <strong>safe</strong>. Scans reais no Kali Linux;
-        mock quando as tools não estiverem no PATH.
+        relatório. Intensidade recomendada: <strong>safe</strong>. Scans reais no Kali Linux; mock
+        quando as tools não estiverem no PATH.
       </p>
+
+      <section className="panel" style={{ marginBottom: "1.25rem" }}>
+        <h2>Tools · real vs mock</h2>
+        <div className="tool-grid">
+          {toolEntries.length === 0 && <p className="meta">Aguardando /health…</p>}
+          {toolEntries.map(([toolName, info]) => (
+            <div key={toolName} className="tool-chip">
+              <strong>{toolName}</strong>
+              <span className={`mode-badge ${info.available ? "real" : info.will_mock ? "mock" : "down"}`}>
+                {info.available ? "real" : info.will_mock ? "mock" : "indisponível"}
+              </span>
+              <span className="meta">{info.binary}</span>
+            </div>
+          ))}
+        </div>
+      </section>
 
       <div className="grid">
         <section className="panel">
@@ -174,7 +266,7 @@ export default function HomePage() {
               <button className="btn" type="submit" disabled={busy}>
                 Criar engagement
               </button>
-              <button className="btn secondary" type="button" onClick={refresh}>
+              <button className="btn secondary" type="button" onClick={() => refresh()}>
                 Atualizar
               </button>
             </div>
@@ -209,21 +301,63 @@ export default function HomePage() {
       </div>
 
       <section className="panel" style={{ marginTop: "1.25rem" }}>
-        <h2>Jobs</h2>
+        <h2>Jobs · progresso F0–F6</h2>
         <div className="list">
-          {jobs.slice(0, 8).map((j) => (
-            <div key={j.id} className="item">
-              <strong>
-                Job #{j.id} · eng {j.engagement_id}
-              </strong>
-              <div className="meta">
-                {j.status} · {j.phase} · {j.progress}%
-                {j.current_tool ? ` · ${j.current_tool}` : ""}
-                {j.error ? ` · erro: ${j.error}` : ""}
-                {j.report_path ? ` · report: ${j.report_path}` : ""}
+          {jobs.slice(0, 8).map((j) => {
+            const cur = PHASE_ORDER.indexOf(j.phase);
+            return (
+              <div key={j.id} className="item">
+                <strong>
+                  Job #{j.id} · eng {j.engagement_id}
+                </strong>
+                <div className="phase-track" aria-label="Progresso das fases">
+                  {PHASE_ORDER.map((p, idx) => {
+                    const done = j.status === "completed" || (cur >= 0 && idx < cur);
+                    const active = j.phase === p && j.status === "running";
+                    return (
+                      <span
+                        key={p}
+                        className={`phase-pill ${done ? "done" : ""} ${active ? "active" : ""}`}
+                      >
+                        {p}
+                      </span>
+                    );
+                  })}
+                </div>
+                <div className="meta">
+                  {j.status} · {j.phase} · {j.progress}%
+                  {j.current_tool ? ` · ${j.current_tool}` : ""}
+                  {j.error ? ` · erro: ${j.error}` : ""}
+                </div>
+                <div className="tool-run-row">
+                  {Object.entries(j.tool_runs || {}).map(([tool, info]) => (
+                    <span
+                      key={tool}
+                      className={`mode-badge ${info.mocked ? "mock" : "real"}`}
+                    >
+                      {tool}:{info.mocked ? "mock" : "real"}
+                    </span>
+                  ))}
+                </div>
+                <div className="row" style={{ marginTop: "0.65rem" }}>
+                  {(j.status === "pending" || j.status === "running") && (
+                    <button
+                      className="btn secondary"
+                      disabled={busy}
+                      onClick={() => cancelJob(j.id)}
+                    >
+                      Cancelar
+                    </button>
+                  )}
+                  {j.status === "completed" && (
+                    <button className="btn" type="button" onClick={() => downloadReport(j.id)}>
+                      Descarregar relatório
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 
@@ -238,7 +372,10 @@ export default function HomePage() {
                 {f.title}
               </strong>
               <div className="meta">
-                {f.target} · {f.tool}
+                {f.target} · {f.tool}{" "}
+                <span className={`mode-badge ${f.mocked ? "mock" : "real"}`}>
+                  {f.mocked ? "mock" : "real"}
+                </span>
               </div>
               <div className="meta">{f.description}</div>
             </div>

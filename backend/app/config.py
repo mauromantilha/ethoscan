@@ -19,14 +19,35 @@ class Settings(BaseSettings):
     ethoscan_mode: str = "local"
     ethoscan_artifacts_dir: str = str(ROOT / "artifacts")
     ethoscan_allow_mock: bool = True
-    ethoscan_api_host: str = "0.0.0.0"
+    ethoscan_api_host: str = "127.0.0.1"
     ethoscan_api_port: int = 8000
+
+    # Auth — ver README "Segurança do próprio Ethoscan"
+    ethoscan_api_key: str = ""
+    ethoscan_disable_auth: bool = False
+
+    # CORS — origem da UI (não usar *)
+    ethoscan_cors_origins: str = "http://localhost:3000"
+
+    # Fila Redis
+    ethoscan_queue_key: str = "ethoscan:jobs"
+    ethoscan_cancel_prefix: str = "ethoscan:cancel:"
 
     @property
     def artifacts_path(self) -> Path:
         path = Path(self.ethoscan_artifacts_dir).resolve()
         path.mkdir(parents=True, exist_ok=True)
         return path
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [o.strip() for o in self.ethoscan_cors_origins.split(",") if o.strip()]
+
+    @property
+    def auth_enabled(self) -> bool:
+        if self.ethoscan_disable_auth:
+            return False
+        return bool(self.ethoscan_api_key.strip())
 
 
 @lru_cache
