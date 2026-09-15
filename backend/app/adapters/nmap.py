@@ -37,6 +37,46 @@ class NmapAdapter(BaseAdapter):
             artifact_path=str(job_dir / "nmap.txt"),
         )
 
+    def _run_mock(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
+        stdout = (
+            f"Nmap mock scan report for {target}\n"
+            "PORT     STATE SERVICE VERSION\n"
+            "22/tcp   open  ssh     OpenSSH 8.9\n"
+            "80/tcp   open  http    nginx 1.24\n"
+            "443/tcp  open  https   nginx 1.24\n"
+        )
+        path = job_dir / "nmap.txt"
+        path.write_text(stdout)
+        findings = [
+            RawFinding(
+                title="Serviço SSH exposto",
+                severity=Severity.info,
+                target=target,
+                tool=self.name,
+                category="network",
+                description="Porta 22/tcp aberta (mock).",
+                evidence="22/tcp open ssh OpenSSH 8.9",
+                remediation="Restringir acesso SSH por firewall/VPN e usar chaves.",
+            ),
+            RawFinding(
+                title="Serviço HTTP/HTTPS exposto",
+                severity=Severity.info,
+                target=target,
+                tool=self.name,
+                category="network",
+                description="Portas 80/443 abertas (mock).",
+                evidence="80/tcp open http; 443/tcp open https",
+            ),
+        ]
+        return AdapterResult(
+            tool=self.name,
+            mocked=True,
+            command=["nmap", "--mock", target],
+            stdout=stdout,
+            findings=findings,
+            artifact_path=str(path),
+        )
+
     def _parse_text(self, stdout: str, target: str) -> list[RawFinding]:
         findings: list[RawFinding] = []
         for line in stdout.splitlines():

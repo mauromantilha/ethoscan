@@ -9,6 +9,9 @@ Orquestrador local de **pentest ético** (CLI + API + dashboard + worker).
 - Intensidade padrão recomendada: **`safe`**
 - Auth mínima por API key + CORS restrito à UI
 
+> Perdido no fluxo de chamadas (API → Redis → worker → orchestrator → adapters)? Ver
+> [docs/architecture.md](docs/architecture.md) — diagramas de sequência e mapa de arquivos por camada.
+
 ## Ambientes de execução
 
 ### 1. Host Kali Linux (caminho oficial para scans reais)
