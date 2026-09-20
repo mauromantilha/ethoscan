@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.adapters import tools_status
+from app.api.auth_routes import router as auth_router
 from app.api.routes import router
 from app.config import get_settings
 from app.core.orchestrator import PHASE_LABELS
@@ -22,17 +23,23 @@ async def lifespan(_: FastAPI):
     if not settings.auth_enabled:
         if settings.ethoscan_mode != "local":
             logger.error(
-                "ETHOSCAN_API_KEY ausente e mode=%s — defina a key. "
+                "ETHOSCAN_API_KEY/utilizador local ausente e mode=%s — defina auth. "
                 "Auth só pode ficar desligada em mode=local com ETHOSCAN_DISABLE_AUTH=true.",
                 settings.ethoscan_mode,
             )
         elif not settings.ethoscan_disable_auth:
             logger.warning(
-                "Auth desligada (sem ETHOSCAN_API_KEY). Aceitável só em lab local. "
-                "Defina ETHOSCAN_API_KEY ou ETHOSCAN_DISABLE_AUTH=true de forma explícita."
+                "Auth desligada (sem ETHOSCAN_API_KEY nem utilizador local). "
+                "Aceitável só em lab local. Defina ETHOSCAN_API_KEY / "
+                "ETHOSCAN_LOCAL_* ou ETHOSCAN_DISABLE_AUTH=true de forma explícita."
             )
         else:
             logger.warning("ETHOSCAN_DISABLE_AUTH=true — API sem autenticação (lab apenas).")
+    elif settings.local_user_configured:
+        logger.info(
+            "Login local ativo para utilizador '%s' (POST /api/auth/login).",
+            settings.ethoscan_local_username.strip(),
+        )
     yield
 
 
@@ -52,6 +59,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router)
 app.include_router(router)
 
 
@@ -65,6 +73,7 @@ def health() -> HealthOut:
         mode=settings.ethoscan_mode,
         mock_allowed=settings.ethoscan_allow_mock,
         auth_enabled=settings.auth_enabled,
+        local_login_available=settings.local_user_configured,
         redis_ok=redis_ok,
         worker_hint=(
             "API + worker separados. Rode: python -m app.worker (requer Redis)."

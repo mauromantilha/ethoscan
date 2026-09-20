@@ -3,7 +3,10 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("ethoscan", {
   getConfig: () => ipcRenderer.invoke("config:get"),
   setConfig: (config) => ipcRenderer.invoke("config:set", config),
+  login: (payload) => ipcRenderer.invoke("auth:login", payload),
+  logout: () => ipcRenderer.invoke("auth:logout"),
   health: () => ipcRenderer.invoke("api:health"),
+  labTools: () => ipcRenderer.invoke("api:labTools"),
   listEngagements: () => ipcRenderer.invoke("api:listEngagements"),
   createEngagement: (payload) => ipcRenderer.invoke("api:createEngagement", payload),
   startJob: (engagementId) => ipcRenderer.invoke("api:startJob", engagementId),

@@ -84,7 +84,36 @@ class HealthOut(BaseModel):
     mode: str
     mock_allowed: bool
     auth_enabled: bool
+    local_login_available: bool = False
     redis_ok: bool
     worker_hint: str
     tools: dict[str, Any]
     phases: dict[str, str]
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=128)
+    password: str = Field(min_length=1, max_length=256)
+
+
+class LoginResponse(BaseModel):
+    token: str
+    token_type: str = "api_key"
+    username: str
+    expires_at: datetime
+    message: str = "Sessão criada. Use o token no header X-API-Key."
+
+
+class LabToolOut(BaseModel):
+    name: str
+    binary: str
+    available: bool
+
+
+class LabInventoryOut(BaseModel):
+    tools: list[LabToolOut]
+    phases: dict[str, str]
+    pipeline_tools: dict[str, Any]
+    note: str = (
+        "Inventário por existência no PATH deste processo — não executa scans."
+    )

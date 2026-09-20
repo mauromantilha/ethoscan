@@ -8,6 +8,8 @@ from app.core.authz import assert_roe, validate_scope
 from app.core.orchestrator import PHASE_LABELS, audit
 from app.core.security import require_api_key
 from app.db import get_db
+from app.lab_inventory import lab_tools_inventory
+from app.adapters import tools_status
 from app.models import Engagement, Finding, Job, JobStatus
 from app.queue import enqueue_job, ping_redis, request_cancel
 from app.schemas import (
@@ -16,6 +18,7 @@ from app.schemas import (
     FindingOut,
     JobOut,
     JobStartResponse,
+    LabInventoryOut,
 )
 
 router = APIRouter(prefix="/api", dependencies=[Depends(require_api_key)])
@@ -148,6 +151,16 @@ def download_report(job_id: int, db: Session = Depends(get_db)) -> FileResponse:
 @router.get("/phases")
 def list_phases() -> dict[str, str]:
     return PHASE_LABELS
+
+
+@router.get("/lab/tools", response_model=LabInventoryOut)
+def lab_tools() -> LabInventoryOut:
+    """Inventário Kali/lab (PATH) + fases F0–F6 + tools do pipeline Ethoscan."""
+    return LabInventoryOut(
+        tools=lab_tools_inventory(),
+        phases=PHASE_LABELS,
+        pipeline_tools=tools_status(),
+    )
 
 
 @router.get("/findings", response_model=list[FindingOut])
