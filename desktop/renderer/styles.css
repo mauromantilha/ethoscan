@@ -241,6 +241,35 @@ textarea {
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
 }
 
+.tool-select {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  max-height: 220px;
+  overflow: auto;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.tool-select-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.35rem 0.65rem;
+  align-items: start;
+  font-size: 0.9rem;
+}
+
+.tool-select-item .meta {
+  grid-column: 2;
+  margin: 0;
+}
+
+.tool-select-item:has(input:disabled) {
+  opacity: 0.55;
+}
+
 .tool-chip {
   border: 1px solid var(--line);
   border-radius: 12px;

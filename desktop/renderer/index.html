@@ -130,6 +130,19 @@
                   <option value="aggressive">aggressive — lab controlado apenas</option>
                 </select>
               </div>
+              <div class="field">
+                <label>Tools do job</label>
+                <p class="meta" id="toolCatalogHint">
+                  Nenhuma seleção = pipeline clássico (nmap, whatweb, gobuster, sslscan, nuclei).
+                  Burp Suite: só GUI; ZAP para scan automatizado. Metasploit: só aux/scanner.
+                </p>
+                <div class="tool-select" id="toolCatalog"></div>
+                <div class="row" style="margin-top: 0.5rem">
+                  <button class="btn secondary" type="button" id="btnLaunchBurp" hidden>
+                    Lançar Burp Suite
+                  </button>
+                </div>
+              </div>
               <label class="checkbox">
                 <input id="ack" type="checkbox" />
                 <span>

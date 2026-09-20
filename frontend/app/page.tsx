@@ -9,6 +9,19 @@ type ToolInfo = {
   mode?: string;
 };
 
+type CatalogTool = {
+  id: string;
+  display_name: string;
+  category: string;
+  available: boolean;
+  runnable: boolean;
+  launchable?: boolean;
+  description: string;
+  status: string;
+  will_mock?: boolean;
+  ethics_note?: string | null;
+};
+
 type Health = {
   status: string;
   mode: string;
@@ -73,6 +86,8 @@ export default function HomePage() {
   const [intensity, setIntensity] = useState("safe");
   const [ack, setAck] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [catalog, setCatalog] = useState<CatalogTool[]>([]);
+  const [selectedTools, setSelectedTools] = useState<string[]>([]);
 
   const refresh = useCallback(async () => {
     try {
@@ -80,15 +95,20 @@ export default function HomePage() {
       const h = await healthRes.json();
       setHealth(h);
 
-      const [eRes, jRes, fRes] = await Promise.all([
+      const [eRes, jRes, fRes, tRes] = await Promise.all([
         fetch(`${API}/api/engagements`, { headers: headers() }),
         fetch(`${API}/api/jobs`, { headers: headers() }),
         fetch(`${API}/api/findings`, { headers: headers() }),
+        fetch(`${API}/api/tools`, { headers: headers() }),
       ]);
       if (!eRes.ok) throw new Error(`engagements ${eRes.status}`);
       setEngagements(await eRes.json());
       setJobs(await jRes.json());
       setFindings(await fRes.json());
+      if (tRes.ok) {
+        const cat = await tRes.json();
+        setCatalog(cat.tools || []);
+      }
       setStatus(
         h.redis_ok
           ? `API ok · Redis ok · auth ${h.auth_enabled ? "on" : "off"} · mock ${h.mock_allowed ? "on" : "off"}`
@@ -125,6 +145,7 @@ export default function HomePage() {
           scope_targets,
           intensity,
           roe_acknowledged: true,
+          selected_tools: selectedTools,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -144,7 +165,10 @@ export default function HomePage() {
     try {
       const res = await fetch(`${API}/api/engagements/${engagementId}/jobs`, {
         method: "POST",
-        headers: headers(),
+        headers: headers(true),
+        body: JSON.stringify(
+          selectedTools.length ? { selected_tools: selectedTools } : {},
+        ),
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
@@ -189,6 +213,28 @@ export default function HomePage() {
     } catch (err) {
       setStatus(String(err));
     }
+  }
+
+  async function downloadReportPdf(jobId: number) {
+    try {
+      const res = await fetch(`${API}/api/jobs/${jobId}/report.pdf`, { headers: headers() });
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `ethoscan-report-job-${jobId}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setStatus(String(err));
+    }
+  }
+
+  function toggleTool(id: string, enabled: boolean) {
+    setSelectedTools((prev) =>
+      enabled ? (prev.includes(id) ? prev : [...prev, id]) : prev.filter((t) => t !== id),
+    );
   }
 
   const filteredFindings = useMemo(
@@ -255,6 +301,37 @@ export default function HomePage() {
                 <option value="standard">standard — lab próprio / RoE explícito</option>
                 <option value="aggressive">aggressive — lab controlado apenas</option>
               </select>
+            </div>
+            <div className="field">
+              <label>Tools do job</label>
+              <p className="meta">
+                Nenhuma seleção = pipeline clássico. Burp = só GUI; ZAP para scan automatizado.
+                Metasploit = aux/scanner apenas.
+              </p>
+              <div className="tool-grid" style={{ marginTop: "0.5rem" }}>
+                {catalog
+                  .filter((t) => t.runnable || t.id === "burpsuite")
+                  .map((t) => {
+                    const canRun = t.runnable && (t.available || t.will_mock);
+                    return (
+                      <label key={t.id} className="tool-chip" style={{ cursor: canRun ? "pointer" : "default" }}>
+                        <span>
+                          <input
+                            type="checkbox"
+                            disabled={!canRun}
+                            checked={selectedTools.includes(t.id)}
+                            onChange={(e) => toggleTool(t.id, e.target.checked)}
+                          />{" "}
+                          <strong>{t.display_name}</strong>
+                        </span>
+                        <span className={`mode-badge ${t.available ? "real" : t.will_mock ? "mock" : "down"}`}>
+                          {t.status}
+                        </span>
+                        <span className="meta">{t.description}</span>
+                      </label>
+                    );
+                  })}
+              </div>
             </div>
             <label className="checkbox">
               <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />
@@ -350,9 +427,14 @@ export default function HomePage() {
                     </button>
                   )}
                   {j.status === "completed" && (
-                    <button className="btn" type="button" onClick={() => downloadReport(j.id)}>
-                      Descarregar relatório
-                    </button>
+                    <>
+                      <button className="btn" type="button" onClick={() => downloadReport(j.id)}>
+                        Descarregar HTML
+                      </button>
+                      <button className="btn" type="button" onClick={() => downloadReportPdf(j.id)}>
+                        Descarregar PDF
+                      </button>
+                    </>
                   )}
                 </div>
               </div>

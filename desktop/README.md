@@ -2,7 +2,9 @@
 
 Shell Electron mínimo para disparar assessments éticos via a API Ethoscan.
 
-> **Não** é um scanner standalone. A app só fala com a API local (`/health`, `/api/auth/login`, inventário, engagements, jobs, findings, relatório). Controles éticos (RoE + allowlist + auth) permanecem no backend.
+> **Não** é um scanner standalone. A app só fala com a API local (`/health`, `/api/auth/login`, `/api/tools`, inventário, engagements, jobs, findings, relatório HTML/PDF). Controles éticos (RoE + allowlist + auth) permanecem no backend.
+
+Após login: escolha tools no formulário (checkboxes; desativadas se não instaladas/runnable). Burp Suite = *só lançamento GUI*; ZAP e Metasploit (aux/scanner) podem entrar no pipeline. Botões **Descarregar HTML** e **Descarregar PDF**.
 
 ## Pré-requisitos
 

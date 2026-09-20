@@ -31,11 +31,16 @@ const el = {
   intensity: document.getElementById("intensity"),
   ack: document.getElementById("ack"),
   btnCreate: document.getElementById("btnCreate"),
+  toolCatalog: document.getElementById("toolCatalog"),
+  toolCatalogHint: document.getElementById("toolCatalogHint"),
+  btnLaunchBurp: document.getElementById("btnLaunchBurp"),
 };
 
 let selectedEngagement = null;
 let busy = false;
 let pollTimer = null;
+let lastCatalog = null;
+let defaultPipeline = ["nmap", "whatweb", "gobuster", "sslscan", "nuclei"];
 
 function setBusy(value) {
   busy = value;
@@ -85,7 +90,6 @@ async function loadConfigIntoForm() {
 }
 
 function renderHealth(health) {
-  lastHealth = health;
   if (!health) {
     el.healthMeta.textContent = "Sem dados de health.";
     el.toolGrid.innerHTML = `<p class="meta">Aguardando /health…</p>`;
@@ -165,6 +169,59 @@ function renderLabInventory(inventory) {
     .join("");
 }
 
+function renderToolCatalog(catalog) {
+  lastCatalog = catalog;
+  if (!catalog || !el.toolCatalog) return;
+  if (catalog.default_pipeline?.length) {
+    defaultPipeline = catalog.default_pipeline;
+  }
+  if (catalog.note && el.toolCatalogHint) {
+    el.toolCatalogHint.textContent = catalog.note;
+  }
+
+  const tools = (catalog.tools || []).filter(
+    (t) => t.runnable || t.launchable || ["burpsuite", "metasploit", "zap"].includes(t.id),
+  );
+  if (!tools.length) {
+    el.toolCatalog.innerHTML = `<p class="meta">Catálogo indisponível.</p>`;
+    return;
+  }
+
+  const prev = new Set(getSelectedToolsFromForm());
+  el.toolCatalog.innerHTML = tools
+    .map((t) => {
+      const canRun = Boolean(t.runnable) && (Boolean(t.available) || Boolean(t.will_mock));
+      const disabled = !canRun;
+      const checked = prev.has(t.id);
+      const status = escapeHtml(t.status || "");
+      return `<label class="tool-select-item">
+        <input type="checkbox" data-tool-id="${escapeHtml(t.id)}" ${disabled ? "disabled" : ""} ${
+          !disabled && checked ? "checked" : ""
+        } />
+        <span>
+          <strong>${escapeHtml(t.display_name || t.id)}</strong>
+          <span class="mode-badge ${t.available ? "real" : t.will_mock ? "mock" : "down"}">${status}</span>
+        </span>
+        <span class="meta">${escapeHtml(t.description || "")}${
+          t.ethics_note ? ` — ${escapeHtml(t.ethics_note)}` : ""
+        }</span>
+      </label>`;
+    })
+    .join("");
+
+  const burp = (catalog.tools || []).find((t) => t.id === "burpsuite");
+  if (el.btnLaunchBurp) {
+    el.btnLaunchBurp.hidden = !(burp && burp.available && burp.launchable);
+  }
+}
+
+function getSelectedToolsFromForm() {
+  if (!el.toolCatalog) return [];
+  return Array.from(el.toolCatalog.querySelectorAll("input[data-tool-id]:checked:not(:disabled)"))
+    .map((input) => input.dataset.toolId)
+    .filter(Boolean);
+}
+
 function renderEngagements(engagements) {
   if (!engagements.length) {
     el.engagementList.innerHTML = `<p class="meta">Nenhum engagement ainda.</p>`;
@@ -216,7 +273,10 @@ function renderJobs(jobs) {
       }
       if (j.status === "completed") {
         actions.push(
-          `<button class="btn" data-action="report" data-id="${j.id}">Descarregar relatório</button>`,
+          `<button class="btn" data-action="report" data-id="${j.id}">Descarregar HTML</button>`,
+        );
+        actions.push(
+          `<button class="btn" data-action="report-pdf" data-id="${j.id}">Descarregar PDF</button>`,
         );
       }
 
@@ -279,6 +339,13 @@ async function refresh() {
       inventory = null;
     }
     renderLabInventory(inventory);
+
+    try {
+      const catalog = await window.ethoscan.toolCatalog();
+      renderToolCatalog(catalog);
+    } catch {
+      renderToolCatalog(null);
+    }
 
     const [engagements, jobs, findings] = await Promise.all([
       window.ethoscan.listEngagements(),
@@ -426,6 +493,20 @@ el.btnRefresh.addEventListener("click", () => {
   });
 });
 
+if (el.btnLaunchBurp) {
+  el.btnLaunchBurp.addEventListener("click", async () => {
+    setBusy(true);
+    try {
+      const res = await window.ethoscan.launchBurp();
+      el.formStatus.textContent = res.message || (res.launched ? "Burp lançado." : "Burp indisponível.");
+    } catch (err) {
+      el.formStatus.textContent = String(err.message || err);
+    } finally {
+      setBusy(false);
+    }
+  });
+}
+
 el.createForm.addEventListener("submit", async (ev) => {
   ev.preventDefault();
   if (!el.ack.checked) {
@@ -443,6 +524,7 @@ el.createForm.addEventListener("submit", async (ev) => {
       scope_targets,
       intensity: el.intensity.value || "safe",
       roe_acknowledged: true,
+      selected_tools: getSelectedToolsFromForm(),
     });
     selectedEngagement = eng.id;
     el.formStatus.textContent = `Engagement #${eng.id} criado`;
@@ -470,7 +552,10 @@ document.body.addEventListener("click", async (ev) => {
   setBusy(true);
   try {
     if (action === "start") {
-      const data = await window.ethoscan.startJob(id);
+      const selected_tools = getSelectedToolsFromForm();
+      const data = await window.ethoscan.startJob(id, {
+        selected_tools: selected_tools.length ? selected_tools : undefined,
+      });
       selectedEngagement = id;
       el.formStatus.textContent = `Job #${data.job.id} enfileirado no worker`;
     } else if (action === "cancel") {
@@ -480,6 +565,14 @@ document.body.addEventListener("click", async (ev) => {
       const result = await window.ethoscan.downloadReport(id);
       if (result.saved) {
         el.formStatus.textContent = `Relatório guardado: ${result.path}`;
+        await window.ethoscan.openPath(result.path);
+      } else {
+        el.formStatus.textContent = "Download cancelado.";
+      }
+    } else if (action === "report-pdf") {
+      const result = await window.ethoscan.downloadReportPdf(id);
+      if (result.saved) {
+        el.formStatus.textContent = `PDF guardado: ${result.path}`;
         await window.ethoscan.openPath(result.path);
       } else {
         el.formStatus.textContent = "Download cancelado.";

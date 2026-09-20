@@ -4,7 +4,8 @@ Orquestrador local de **pentest ético** (CLI + API + dashboard + desktop + work
 
 - Pipeline **F0–F6** (gate RoE/escopo/tools → recon → enum → web → vuln → correlação → relatório)
 - Escopo allowlist + RoE obrigatório + audit log
-- Adapters: Nmap, WhatWeb, Gobuster, sslscan, Nuclei
+- Catálogo de tools pré-configuradas (selecionáveis); adapters: Nmap, WhatWeb, Gobuster, sslscan, Nuclei, Nikto, Masscan, ZAP; Metasploit **só aux/scanner**; Burp **só lançamento GUI**
+- Relatório HTML + **PDF** imprimível (`GET /api/jobs/{id}/report.pdf`)
 - Worker dedicado via **Redis** (a API não bloqueia em scans longos)
 - Shell **Electron** opcional (`desktop/`) para Kali/Windows — client fino da API
 - Intensidade padrão recomendada: **`safe`**
@@ -19,15 +20,25 @@ Orquestrador local de **pentest ético** (CLI + API + dashboard + desktop + work
 
 Ver checklist completo em [docs/kali-setup.md](docs/kali-setup.md).
 
-Binários mínimos: `nmap`, `whatweb`, `gobuster`, `sslscan`, `nuclei` (+ wordlist para Gobuster).
+Binários mínimos (pipeline clássico): `nmap`, `whatweb`, `gobuster`, `sslscan`, `nuclei` (+ wordlist para Gobuster).
+
+Opcionais (selecionáveis no catálogo): `nikto`, `masscan`, `zap.sh`/`zap` (OWASP ZAP), `msfconsole` (apenas auxiliary/scanner), `burpsuite` (lançamento GUI).
 
 ```bash
 ETHOSCAN_ALLOW_MOCK=false
 ```
 
 - Tool no PATH → scan **real** (`mocked=false`)
-- Tool em falta + mock off → **falha** no gate F0
+- Tool em falta + mock off → **falha** no gate F0 (apenas para as tools **selecionadas**)
 - Tool em falta + `ETHOSCAN_ALLOW_MOCK=true` → **mock** (`mocked=true` em findings/jobs)
+- `selected_tools` vazio → pipeline clássico F1–F4 (compatível com versões anteriores)
+
+### Ética / limites
+
+- Sem scans sem RoE + escopo allowlist (gate F0).
+- Metasploit: **nunca** auto-executa exploits/payloads; só resource scripts `auxiliary/scanner`.
+- Burp Community: GUI — use **OWASP ZAP** no pipeline para relatório automatizado.
+- Wireless (wifite, etc.): inventário PATH apenas.
 
 ### 2. Dev sem tools / Docker (mock permitido)
 
@@ -94,7 +105,7 @@ cd desktop && npm install && npm start
 
 ### Desktop Electron (MVP)
 
-Shell local mínimo (Kali/Windows) para configurar a API, ver `/health`, criar engagement (RoE obrigatório), arrancar/cancelar jobs F0–F6, listar achados e descarregar o relatório. **Não** substitui o scanner — só chama a API existente (RoE/allowlist/auth intactos).
+Shell local mínimo (Kali/Windows) para configurar a API, ver `/health`, escolher tools do catálogo, criar engagement (RoE obrigatório), arrancar/cancelar jobs F0–F6, listar achados e descarregar HTML/PDF. **Não** substitui o scanner — só chama a API existente (RoE/allowlist/auth intactos).
 
 Pré-requisitos: API + Redis + worker já a correr (ver passos acima). Uso ético apenas; preferir bind localhost.
 
@@ -141,8 +152,10 @@ python cli.py cancel 1
 
 ## Relatórios
 
-- Path em disco: `job.report_path`
-- Download: `GET /api/jobs/{id}/report` (UI botão / CLI `report`)
+- Path em disco: `job.report_path` (HTML) e `job.report_pdf_path` (PDF)
+- Download HTML: `GET /api/jobs/{id}/report`
+- Download PDF: `GET /api/jobs/{id}/report.pdf` (`application/pdf`, imprimível)
+- Catálogo: `GET /api/tools` — `selected_tools` no create/start (vazio = pipeline clássico)
 
 ## Migrações
 
@@ -158,10 +171,10 @@ cd backend && alembic upgrade head
 
 ```bash
 ./scripts/smoke.sh
-# ou: cd backend && ETHOSCAN_DISABLE_AUTH=true pytest tests/test_smoke.py -q
+# ou: cd backend && ETHOSCAN_DISABLE_AUTH=true pytest tests/ -q
 ```
 
-Cobertura: RoE negado, alvo inválido, create→run (mock)→findings→report, cancel, auth.
+Cobertura: RoE negado, alvo inválido, create→run (mock)→findings→report HTML/PDF, selected_tools, catálogo, cancel, auth.
 
 ## Aceitação Kali (manual)
 

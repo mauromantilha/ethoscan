@@ -165,14 +165,23 @@ ipcMain.handle("api:health", async () => apiFetch("/health"));
 
 ipcMain.handle("api:labTools", async () => apiFetch("/api/lab/tools"));
 
+ipcMain.handle("api:toolCatalog", async () => apiFetch("/api/tools"));
+
+ipcMain.handle("api:launchBurp", async () =>
+  apiFetch("/api/tools/burpsuite/launch", { method: "POST" }),
+);
+
 ipcMain.handle("api:listEngagements", async () => apiFetch("/api/engagements"));
 
 ipcMain.handle("api:createEngagement", async (_event, payload) =>
   apiFetch("/api/engagements", { method: "POST", body: payload }),
 );
 
-ipcMain.handle("api:startJob", async (_event, engagementId) =>
-  apiFetch(`/api/engagements/${engagementId}/jobs`, { method: "POST" }),
+ipcMain.handle("api:startJob", async (_event, engagementId, body) =>
+  apiFetch(`/api/engagements/${engagementId}/jobs`, {
+    method: "POST",
+    body: body && Object.keys(body).length ? body : undefined,
+  }),
 );
 
 ipcMain.handle("api:listJobs", async (_event, engagementId) => {
@@ -209,6 +218,28 @@ ipcMain.handle("api:downloadReport", async (event, jobId) => {
     title: "Guardar relatório Ethoscan",
     defaultPath: `ethoscan-report-job-${jobId}.html`,
     filters: [{ name: "HTML", extensions: ["html"] }],
+  });
+  if (result.canceled || !result.filePath) {
+    return { saved: false };
+  }
+  fs.writeFileSync(result.filePath, buffer);
+  return { saved: true, path: result.filePath };
+});
+
+ipcMain.handle("api:downloadReportPdf", async (event, jobId) => {
+  const config = readConfig();
+  const url = `${config.apiBaseUrl}/api/jobs/${jobId}/report.pdf`;
+  const res = await fetch(url, { headers: buildHeaders(config) });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `HTTP ${res.status}`);
+  }
+  const buffer = Buffer.from(await res.arrayBuffer());
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const result = await dialog.showSaveDialog(win, {
+    title: "Guardar PDF Ethoscan",
+    defaultPath: `ethoscan-report-job-${jobId}.pdf`,
+    filters: [{ name: "PDF", extensions: ["pdf"] }],
   });
   if (result.canceled || !result.filePath) {
     return { saved: false };

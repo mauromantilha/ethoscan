@@ -1,12 +1,17 @@
 from app.adapters.base import BaseAdapter
 from app.adapters.gobuster import GobusterAdapter
+from app.adapters.masscan import MasscanAdapter
+from app.adapters.metasploit import MetasploitAdapter
+from app.adapters.nikto import NiktoAdapter
 from app.adapters.nmap import NmapAdapter
 from app.adapters.nuclei import NucleiAdapter
 from app.adapters.sslscan import SslscanAdapter
 from app.adapters.whatweb import WhatWebAdapter
+from app.adapters.zap import ZapAdapter
 from app.config import get_settings
 
 
+# Pipeline clássico (backward compatible quando selected_tools vazio).
 REQUIRED_TOOLS = ("nmap", "whatweb", "gobuster", "sslscan", "nuclei")
 
 
@@ -17,6 +22,10 @@ def all_adapters() -> list[BaseAdapter]:
         GobusterAdapter(),
         SslscanAdapter(),
         NucleiAdapter(),
+        NiktoAdapter(),
+        MasscanAdapter(),
+        ZapAdapter(),
+        MetasploitAdapter(),
     ]
 
 
