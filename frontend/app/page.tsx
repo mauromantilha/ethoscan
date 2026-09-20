@@ -18,6 +18,7 @@ type CatalogTool = {
   launchable?: boolean;
   description: string;
   status: string;
+  role?: string;
   will_mock?: boolean;
   ethics_note?: string | null;
 };
@@ -310,13 +311,11 @@ export default function HomePage() {
                   Avançado · seleção de tools
                 </summary>
                 <p className="meta" style={{ marginTop: "0.5rem" }}>
-                  Vazio = pipeline clássico. <strong>ZAP</strong> = scan automatizado;{" "}
-                  <strong>Burp</strong> = só GUI. Metasploit = aux/scanner.
+                  Vazio = pipeline clássico. Badges: <strong>executável</strong> /{" "}
+                  <strong>só GUI</strong> / <strong>inventário</strong>. Instalado ≠ selecionável.
                 </p>
-                <div className="tool-grid" style={{ marginTop: "0.5rem" }}>
-                  {catalog
-                    .filter((t) => t.runnable || t.id === "burpsuite")
-                    .map((t) => {
+                <div className="tool-grid" style={{ marginTop: "0.5rem", maxHeight: 360, overflow: "auto" }}>
+                  {catalog.map((t) => {
                       const canRun = t.runnable && (t.available || t.will_mock);
                       return (
                         <label key={t.id} className="tool-chip" style={{ cursor: canRun ? "pointer" : "default" }}>
@@ -332,6 +331,7 @@ export default function HomePage() {
                           <span className={`mode-badge ${t.available ? "real" : t.will_mock ? "mock" : "down"}`}>
                             {t.status}
                           </span>
+                          {t.available && <span className="mode-badge real">disponível</span>}
                           <span className="meta">{t.description}</span>
                         </label>
                       );

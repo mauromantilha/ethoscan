@@ -21,7 +21,7 @@
       <header class="hero">
         <div class="hero-top">
           <h1 class="brand">Ethoscan</h1>
-          <span class="version-label" id="appVersion">v0.1.3</span>
+          <span class="version-label" id="appVersion">v0.1.4</span>
         </div>
         <p class="tagline">
           Assessment ético local — escopo allowlist, RoE e pipeline F0–F6. Intensidade
@@ -162,8 +162,8 @@
                 <details class="advanced tools-advanced">
                   <summary>Avançado · seleção de tools</summary>
                   <p class="meta" id="toolCatalogHint" style="margin-top: 0.65rem">
-                    Vazio = pipeline clássico (nmap, whatweb, gobuster, sslscan, nuclei).
-                    <strong>ZAP</strong> = scan automatizado; <strong>Burp</strong> = só GUI.
+                    Vazio = pipeline clássico. Badges: executável / só GUI / inventário.
+                    Instalado ≠ selecionável no job.
                   </p>
                   <div class="tool-select" id="toolCatalog"></div>
                   <div class="row" style="margin-top: 0.5rem">
@@ -229,7 +229,9 @@
           </div>
           <div class="panel">
             <h2>Inventário Kali</h2>
-            <p class="meta" id="labNote">Disponível / em falta no PATH da API.</p>
+            <p class="meta" id="labNote">
+              Instalado ≠ executável. Badges: disponível + executável / só GUI / inventário.
+            </p>
             <div class="tool-grid" id="labGrid">
               <p class="meta">Aguardando inventário…</p>
             </div>

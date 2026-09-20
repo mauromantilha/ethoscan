@@ -14,17 +14,29 @@ from app.core.correlator import correlate
 from app.core.reports import write_html_report, write_pdf_report
 from app.models import AuditEvent, Engagement, Finding, Job, JobStatus
 from app.queue import clear_cancel, is_cancel_requested
-from app.tool_catalog import DEFAULT_PIPELINE_TOOLS, resolve_selected_tools
+from app.tool_catalog import DEFAULT_PIPELINE_TOOLS, filter_by_intensity, resolve_selected_tools
 
 
 # F0 = gate explícito (RoE + escopo + tools). F1–F6 = execução.
-# Tools opcionais (nikto, masscan, zap, metasploit) só correm se selected_tools as incluir.
+# Tools opcionais só correm se selected_tools as incluir.
 PHASES = [
     ("F0", "gate", []),
     ("F1", "recon", ["whatweb"]),
-    ("F2", "enum", ["nmap", "sslscan", "masscan", "metasploit"]),
-    ("F3", "web-discovery", ["gobuster", "zap"]),
-    ("F4", "vuln", ["nuclei", "nikto"]),
+    (
+        "F2",
+        "enum",
+        [
+            "nmap",
+            "sslscan",
+            "masscan",
+            "unicornscan",
+            "metasploit",
+            "netexec",
+            "bloodhound-python",
+        ],
+    ),
+    ("F3", "web-discovery", ["gobuster", "zap", "sqlmap"]),
+    ("F4", "vuln", ["nuclei", "nikto", "hydra", "john"]),
     ("F5", "correlate", []),
     ("F6", "report", []),
 ]
@@ -32,9 +44,9 @@ PHASES = [
 PHASE_LABELS = {
     "F0": "Gate (RoE, escopo, tools)",
     "F1": "Recon (WhatWeb)",
-    "F2": "Enum (Nmap, sslscan, masscan, msf-aux)",
-    "F3": "Web discovery (Gobuster, ZAP)",
-    "F4": "Vuln (Nuclei, Nikto)",
+    "F2": "Enum (Nmap, sslscan, masscan, unicornscan, msf-aux, nxc, BH)",
+    "F3": "Web discovery (Gobuster, ZAP, sqlmap)",
+    "F4": "Vuln (Nuclei, Nikto, hydra, john)",
     "F5": "Correlação",
     "F6": "Relatório",
 }
@@ -42,8 +54,8 @@ PHASE_LABELS = {
 # Cap de paralelismo intra-fase (adapters independentes).
 _PHASE_PARALLEL_WORKERS = 3
 
-# Em safe/standard, masscan e msf-aux sobrepõem nmap — omitir se nmap já está selecionado.
-_REDUNDANT_WITH_NMAP = frozenset({"masscan", "metasploit"})
+# Em safe/standard, scanners de porta rápidos sobrepõem nmap — omitir se nmap já está selecionado.
+_REDUNDANT_WITH_NMAP = frozenset({"masscan", "metasploit", "unicornscan"})
 
 
 class JobCancelled(Exception):
@@ -133,7 +145,10 @@ def run_pipeline(db: Session, job_id: int) -> None:
 
     try:
         selected = _prune_redundant_tools(
-            _job_selected_tools(job),
+            filter_by_intensity(
+                _job_selected_tools(job),
+                engagement.intensity.value,
+            ),
             engagement.intensity.value,
         )
         job.selected_tools = selected

@@ -15,7 +15,7 @@ PIPELINE_BINARIES: dict[str, str] = {
 }
 
 # Inventário alargado orientado a Kali / docs de lab do projeto.
-# Cada entrada: nome de exibição → candidatos de binário no PATH (primeiro encontrado).
+# Cada entrada: id do catálogo → candidatos de binário no PATH (primeiro encontrado).
 LAB_TOOL_CANDIDATES: list[tuple[str, tuple[str, ...]]] = [
     ("nmap", ("nmap",)),
     ("whatweb", ("whatweb",)),
@@ -27,15 +27,22 @@ LAB_TOOL_CANDIDATES: list[tuple[str, tuple[str, ...]]] = [
     ("nikto", ("nikto",)),
     ("zap", ("zap.sh", "zap", "zaproxy")),
     ("burpsuite", ("burpsuite", "burp")),
-    ("metasploit", ("msfconsole",)),
-    ("bettercap", ("bettercap",)),
+    ("metasploit", ("msfconsole", "msfvenom")),
+    ("wireshark", ("wireshark", "wireshark-qt", "wireshark-gtk")),
+    ("tcpdump", ("tcpdump",)),
+    ("john", ("john", "john-the-ripper")),
+    ("hydra", ("hydra", "thc-hydra")),
+    ("aircrack-ng", ("aircrack-ng",)),
     ("kismet", ("kismet",)),
     ("wifite", ("wifite", "wifite.py")),
     ("fern-wifi-cracker", ("fern-wifi-cracker", "fern", "fern-wifi")),
+    ("bettercap", ("bettercap",)),
     ("arpwatch", ("arpwatch",)),
+    ("sqlmap", ("sqlmap",)),
     ("setoolkit", ("setoolkit", "set", "se-toolkit")),
-    ("netexec", ("nxc", "netexec")),
+    ("netcat", ("nc", "ncat", "netcat")),
     ("bloodhound-python", ("bloodhound-python", "bloodhound")),
+    ("netexec", ("nxc", "netexec", "crackmapexec")),
 ]
 
 

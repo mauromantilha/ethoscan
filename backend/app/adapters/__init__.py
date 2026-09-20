@@ -1,11 +1,17 @@
 from app.adapters.base import BaseAdapter
+from app.adapters.bloodhound import BloodhoundAdapter
 from app.adapters.gobuster import GobusterAdapter
+from app.adapters.hydra import HydraAdapter
+from app.adapters.john import JohnAdapter
 from app.adapters.masscan import MasscanAdapter
 from app.adapters.metasploit import MetasploitAdapter
+from app.adapters.netexec import NetExecAdapter
 from app.adapters.nikto import NiktoAdapter
 from app.adapters.nmap import NmapAdapter
 from app.adapters.nuclei import NucleiAdapter
+from app.adapters.sqlmap import SqlmapAdapter
 from app.adapters.sslscan import SslscanAdapter
+from app.adapters.unicornscan import UnicornscanAdapter
 from app.adapters.whatweb import WhatWebAdapter
 from app.adapters.zap import ZapAdapter
 from app.config import get_settings
@@ -24,8 +30,14 @@ def all_adapters() -> list[BaseAdapter]:
         NucleiAdapter(),
         NiktoAdapter(),
         MasscanAdapter(),
+        UnicornscanAdapter(),
         ZapAdapter(),
         MetasploitAdapter(),
+        SqlmapAdapter(),
+        HydraAdapter(),
+        JohnAdapter(),
+        NetExecAdapter(),
+        BloodhoundAdapter(),
     ]
 
 

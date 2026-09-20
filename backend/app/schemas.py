@@ -191,6 +191,7 @@ class ToolCatalogEntryOut(BaseModel):
     ethics_note: str | None = None
     will_mock: bool = False
     mode: str = "unavailable"
+    role: str = "inventário"
     status: str
 
 
@@ -198,9 +199,10 @@ class ToolCatalogOut(BaseModel):
     tools: list[ToolCatalogEntryOut]
     default_pipeline: list[str]
     note: str = (
-        "Selecione tools runnable para o job. Lista vazia = pipeline clássico F1–F4. "
-        "Burp Suite: só lançamento GUI; use ZAP para scan automatizado. "
-        "Metasploit: apenas auxiliary/scanner. Wireless permanece inventário."
+        "Catálogo completo: instalado ≠ executável. "
+        "Executável = adapter no pipeline (RoE + allowlist). "
+        "Só GUI = lançamento manual. Inventário = PATH apenas (RF/SET/utils). "
+        "Vazio = pipeline clássico F1–F4. Sem exploits Metasploit nem RF automatizado."
     )
 
 

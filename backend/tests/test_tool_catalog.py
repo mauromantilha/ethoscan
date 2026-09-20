@@ -8,7 +8,12 @@ from unittest.mock import patch
 from app.core.orchestrator import run_pipeline
 from app import db as dbmod
 from app.models import Job, JobStatus
-from app.tool_catalog import resolve_selected_tools, validate_selected_tools
+from app.tool_catalog import (
+    REQUESTED_TOOL_IDS,
+    resolve_selected_tools,
+    tool_catalog,
+    validate_selected_tools,
+)
 
 
 def test_tool_catalog_schema(client):
@@ -32,6 +37,83 @@ def test_tool_catalog_schema(client):
         assert "available" in t
         assert "status" in t
         assert "description" in t
+        assert "role" in t
+
+
+def test_catalog_contains_all_requested_ids(client):
+    """Os 21 tools pedidos + pipeline clássico extra devem aparecer no GET /api/tools."""
+    r = client.get("/api/tools")
+    assert r.status_code == 200
+    ids = {t["id"] for t in r.json()["tools"]}
+    missing = [tid for tid in REQUESTED_TOOL_IDS if tid not in ids]
+    assert missing == [], f"faltam no catálogo: {missing}"
+    for extra in ("whatweb", "gobuster", "sslscan", "nuclei", "zap"):
+        assert extra in ids
+
+
+def test_catalog_role_classification(client):
+    r = client.get("/api/tools")
+    by_id = {t["id"]: t for t in r.json()["tools"]}
+    assert by_id["nmap"]["role"] == "executável"
+    assert by_id["sqlmap"]["runnable"] is True
+    assert by_id["unicornscan"]["runnable"] is True
+    assert by_id["hydra"]["runnable"] is True
+    assert by_id["john"]["runnable"] is True
+    assert by_id["netexec"]["runnable"] is True
+    assert by_id["netexec"]["display_name"] == "NetExec (CME)"
+    assert by_id["bloodhound-python"]["runnable"] is True
+    assert by_id["wireshark"]["launchable"] is True
+    assert by_id["wireshark"]["runnable"] is False
+    assert by_id["wifite"]["runnable"] is False
+    assert by_id["wifite"]["launchable"] is False
+    assert by_id["setoolkit"]["runnable"] is False
+    assert "inventário" in (by_id["setoolkit"]["status"] or "").lower() or by_id["setoolkit"][
+        "role"
+    ] == "inventário"
+    assert by_id["tcpdump"]["role"] == "inventário"
+    assert by_id["aircrack-ng"]["role"] == "inventário"
+
+
+def test_catalog_path_mock(monkeypatch):
+    """PATH mock: nxc → netexec available; binários em falta → unavailable."""
+    from app import lab_inventory as inv
+    from app import tool_catalog as tc
+
+    present = {"nmap", "nxc", "sqlmap", "wireshark", "nc"}
+
+    def fake_which(name: str):
+        return f"/usr/bin/{name}" if name in present else None
+
+    monkeypatch.setattr(inv.shutil, "which", fake_which)
+    monkeypatch.setattr(tc.shutil, "which", fake_which)
+    # Adapters also use shutil.which
+    import shutil as real_shutil
+
+    monkeypatch.setattr(real_shutil, "which", fake_which)
+
+    catalog = tool_catalog()
+    by_id = {t["id"]: t for t in catalog}
+    assert by_id["nmap"]["available"] is True
+    assert by_id["netexec"]["available"] is True
+    assert by_id["netexec"]["binary"] in {"nxc", "netexec", "crackmapexec"}
+    assert by_id["sqlmap"]["available"] is True
+    assert by_id["wireshark"]["available"] is True
+    assert by_id["netcat"]["available"] is True
+    assert by_id["netcat"]["binary"] == "nc"
+    assert by_id["hydra"]["available"] is False
+    assert by_id["wifite"]["available"] is False
+    assert by_id["bloodhound-python"]["available"] is False
+
+
+def test_lab_inventory_includes_requested(monkeypatch):
+    from app import lab_inventory as inv
+
+    monkeypatch.setattr(inv.shutil, "which", lambda name: None)
+    tools = inv.lab_tools_inventory()
+    names = {t["name"] for t in tools}
+    for tid in REQUESTED_TOOL_IDS:
+        assert tid in names, f"lab inventory missing {tid}"
+    assert len(tools) >= 21
 
 
 def test_resolve_selected_tools_defaults():
@@ -50,6 +132,10 @@ def test_resolve_selected_tools_defaults():
         "nuclei",
     ]
     assert resolve_selected_tools(["nmap", "nikto", "burpsuite"]) == ["nmap", "nikto"]
+    assert resolve_selected_tools(["nmap", "sqlmap", "wifite", "setoolkit"]) == [
+        "nmap",
+        "sqlmap",
+    ]
 
 
 def test_validate_rejects_unknown():
@@ -186,3 +272,32 @@ def test_roe_still_required_with_selected_tools(client):
             json={"selected_tools": ["nmap"]},
         )
     assert jr.status_code == 403
+
+
+def test_intensity_filters_hydra_on_safe(client):
+    """Hydra (intensity_min=standard) é filtrado em engagement safe."""
+    r = client.post(
+        "/api/engagements",
+        json={
+            "name": "Hydra safe filter",
+            "scope_targets": ["scanme.nmap.org"],
+            "intensity": "safe",
+            "roe_acknowledged": True,
+            "selected_tools": ["nmap", "hydra"],
+        },
+    )
+    eng_id = r.json()["id"]
+    with patch("app.api.routes.ping_redis", return_value=True), patch(
+        "app.api.routes.enqueue_job"
+    ):
+        jr = client.post(f"/api/engagements/{eng_id}/jobs", json={})
+    job_id = jr.json()["job"]["id"]
+    run_pipeline(dbmod.SessionLocal(), job_id)
+    db = dbmod.SessionLocal()
+    try:
+        job = db.get(Job, job_id)
+        assert job.status == JobStatus.completed
+        assert "hydra" not in (job.selected_tools or [])
+        assert "nmap" in (job.selected_tools or [])
+    finally:
+        db.close()

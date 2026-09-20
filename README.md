@@ -22,7 +22,11 @@ Ver checklist completo em [docs/kali-setup.md](docs/kali-setup.md).
 
 Binários mínimos (pipeline clássico): `nmap`, `whatweb`, `gobuster`, `sslscan`, `nuclei` (+ wordlist para Gobuster).
 
-Opcionais (selecionáveis no catálogo): `nikto`, `masscan`, `zap.sh`/`zap` (OWASP ZAP), `msfconsole` (apenas auxiliary/scanner), `burpsuite` (lançamento GUI).
+Opcionais (selecionáveis no catálogo): `nikto`, `masscan`, `unicornscan`, `zap`, `sqlmap`,
+`hydra` (standard+), `john` (hashes offline), `netexec`/`nxc`, `bloodhound-python` (standard+),
+`msfconsole` (apenas auxiliary/scanner). GUI: `burpsuite`, `wireshark`, `fern-wifi-cracker`.
+Inventário (visível, sem job): RF (`wifite`, `kismet`, `aircrack-ng`), `bettercap`, `arpwatch`,
+`setoolkit`, `tcpdump`, `netcat`.
 
 ```bash
 ETHOSCAN_ALLOW_MOCK=false

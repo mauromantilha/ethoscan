@@ -35,7 +35,7 @@ def test_lab_inventory_reports_availability(monkeypatch):
     assert by_name["netexec"]["binary"] == "nxc"
     assert by_name["nikto"]["available"] is False
     assert by_name["bloodhound-python"]["available"] is False
-    assert len(tools) >= 16
+    assert len(tools) >= 21
 
 
 def test_login_issues_session_token(tmp_path, monkeypatch):
