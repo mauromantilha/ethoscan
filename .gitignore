@@ -12,6 +12,11 @@ node_modules/
 out/
 dist/
 build/
+desktop/release/
+desktop/*.AppImage
+desktop/*.deb
+desktop/*.exe
+
 *.log
 artifacts/
 data/
