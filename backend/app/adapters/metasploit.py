@@ -22,7 +22,12 @@ class MetasploitAdapter(BaseAdapter):
     def _run_real(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
         host = target.split("://")[-1].split("/")[0].split(":")[0]
         # Portas top limitadas — sem exploit, sem payload, sem sessions.
-        ports = "22,80,443" if intensity == "safe" else "1-1024"
+        if intensity == "safe":
+            ports, threads, timeout = "22,80,443", "4", 120
+        elif intensity == "standard":
+            ports, threads, timeout = "1-1024", "8", 240
+        else:
+            ports, threads, timeout = "1-1024", "8", 300
         rc_path = job_dir / "msf_aux_scanner.rc"
         out_path = job_dir / "msf_aux.txt"
         rc = "\n".join(
@@ -30,7 +35,7 @@ class MetasploitAdapter(BaseAdapter):
                 f"use {_SAFE_AUX_MODULE}",
                 f"set RHOSTS {host}",
                 f"set PORTS {ports}",
-                "set THREADS 4",
+                f"set THREADS {threads}",
                 "run",
                 "exit",
                 "",
@@ -44,7 +49,7 @@ class MetasploitAdapter(BaseAdapter):
             "-r",
             str(rc_path),
         ]
-        stdout, stderr, _ = self._exec(cmd, timeout=300)
+        stdout, stderr, _ = self._exec(cmd, timeout=timeout)
         out_path.write_text(stdout or stderr or "")
         findings = self._parse(stdout, target, host)
         return AdapterResult(

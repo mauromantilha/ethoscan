@@ -13,8 +13,10 @@ class WhatWebAdapter(BaseAdapter):
     def _run_real(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
         url = target if target.startswith("http") else f"http://{target}"
         out_file = job_dir / "whatweb.txt"
-        cmd = ["whatweb", "--color=never", "-a", "3" if intensity != "safe" else "1", url]
-        stdout, stderr, _ = self._exec(cmd, timeout=120)
+        aggression = "1" if intensity == "safe" else ("3" if intensity == "standard" else "4")
+        timeout = 45 if intensity == "safe" else (90 if intensity == "standard" else 120)
+        cmd = ["whatweb", "--color=never", "-a", aggression, url]
+        stdout, stderr, _ = self._exec(cmd, timeout=timeout)
         out_file.write_text(stdout)
         findings = [
             RawFinding(

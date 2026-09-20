@@ -13,8 +13,11 @@ class SslscanAdapter(BaseAdapter):
     def _run_real(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
         host = target.replace("https://", "").replace("http://", "").split("/")[0]
         out_file = job_dir / "sslscan.txt"
-        cmd = ["sslscan", "--no-colour", host]
-        stdout, stderr, _ = self._exec(cmd, timeout=120)
+        timeout = 45 if intensity == "safe" else (75 if intensity == "standard" else 120)
+        cmd = ["sslscan", "--no-colour", "--no-heartbleed", host]
+        if intensity == "safe":
+            cmd = ["sslscan", "--no-colour", "--no-heartbleed", "--no-compression", host]
+        stdout, stderr, _ = self._exec(cmd, timeout=timeout)
         out_file.write_text(stdout)
         findings = self._parse(stdout, target)
         return AdapterResult(

@@ -17,11 +17,11 @@ class MasscanAdapter(BaseAdapter):
         host = target.split("://")[-1].split("/")[0].split(":")[0]
         out_file = job_dir / "masscan.txt"
         if intensity == "safe":
-            ports, rate = "22,80,443,8080,8443", "100"
+            ports, rate, timeout = "22,80,443,8080,8443", "200", 60
         elif intensity == "standard":
-            ports, rate = "1-1024,8080,8443,3306,5432", "500"
+            ports, rate, timeout = "1-1024,8080,8443,3306,5432", "500", 120
         else:
-            ports, rate = "1-2048,8000-9000", "1000"
+            ports, rate, timeout = "1-2048,8000-9000", "1000", 180
 
         cmd = [
             "masscan",
@@ -33,7 +33,7 @@ class MasscanAdapter(BaseAdapter):
             "-oL",
             str(out_file),
         ]
-        stdout, stderr, _ = self._exec(cmd, timeout=180)
+        stdout, stderr, _ = self._exec(cmd, timeout=timeout)
         content = out_file.read_text() if out_file.exists() else stdout
         if not out_file.exists() and content:
             out_file.write_text(content)

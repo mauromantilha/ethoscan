@@ -66,7 +66,7 @@ def main() -> int:
 
     while _running:
         try:
-            job_id = pop_job(timeout=2)
+            job_id = pop_job(timeout=1)
         except Exception as exc:  # noqa: BLE001
             logger.error("erro ao ler fila: %s", exc)
             time.sleep(2)

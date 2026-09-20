@@ -12,9 +12,22 @@ class GobusterAdapter(BaseAdapter):
 
     def _run_real(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
         url = target if target.startswith("http") else f"http://{target}"
-        wordlist = "/usr/share/wordlists/dirb/common.txt"
+        # Preferir wordlist curta em safe se existir; senão common.txt.
+        short_list = Path("/usr/share/wordlists/dirb/small.txt")
+        common = Path("/usr/share/wordlists/dirb/common.txt")
+        if intensity == "safe" and short_list.is_file():
+            wordlist = str(short_list)
+            threads, timeout = "8", 120
+        elif intensity == "safe":
+            wordlist = str(common)
+            threads, timeout = "8", 150
+        elif intensity == "standard":
+            wordlist = str(common)
+            threads, timeout = "20", 240
+        else:
+            wordlist = str(common)
+            threads, timeout = "30", 300
         out_file = job_dir / "gobuster.txt"
-        threads = "10" if intensity == "safe" else "30"
         cmd = [
             "gobuster",
             "dir",
@@ -27,8 +40,10 @@ class GobusterAdapter(BaseAdapter):
             "-o",
             str(out_file),
             "-q",
+            "-b",
+            "404",
         ]
-        stdout, stderr, code = self._exec(cmd, timeout=300)
+        stdout, stderr, _ = self._exec(cmd, timeout=timeout)
         content = out_file.read_text() if out_file.exists() else stdout
         findings = self._parse(content, target)
         return AdapterResult(

@@ -1,4 +1,13 @@
 const PHASE_ORDER = ["F0", "F1", "F2", "F3", "F4", "F5", "F6"];
+const PHASE_LABELS = {
+  F0: "Gate",
+  F1: "Recon",
+  F2: "Enum",
+  F3: "Web",
+  F4: "Vuln",
+  F5: "Correlação",
+  F6: "Relatório",
+};
 
 const el = {
   loginPanel: document.getElementById("loginPanel"),
@@ -23,6 +32,7 @@ const el = {
   labGrid: document.getElementById("labGrid"),
   engagementList: document.getElementById("engagementList"),
   jobList: document.getElementById("jobList"),
+  historyList: document.getElementById("historyList"),
   findingList: document.getElementById("findingList"),
   findingsTitle: document.getElementById("findingsTitle"),
   createForm: document.getElementById("createForm"),
@@ -37,24 +47,56 @@ const el = {
   updateBanner: document.getElementById("updateBanner"),
   updateStatus: document.getElementById("updateStatus"),
   btnCheckUpdate: document.getElementById("btnCheckUpdate"),
+  btnCheckUpdateLab: document.getElementById("btnCheckUpdateLab"),
   btnInstallUpdate: document.getElementById("btnInstallUpdate"),
+  appVersion: document.getElementById("appVersion"),
+  toastHost: document.getElementById("toastHost"),
+  progressDialog: document.getElementById("progressDialog"),
+  progressJobMeta: document.getElementById("progressJobMeta"),
+  progressBar: document.getElementById("progressBar"),
+  progressPct: document.getElementById("progressPct"),
+  progressPhases: document.getElementById("progressPhases"),
+  progressTool: document.getElementById("progressTool"),
+  progressEta: document.getElementById("progressEta"),
+  progressError: document.getElementById("progressError"),
+  btnDismissProgress: document.getElementById("btnDismissProgress"),
+  btnCopyJobId: document.getElementById("btnCopyJobId"),
+  btnCancelProgress: document.getElementById("btnCancelProgress"),
+  btnOpenReport: document.getElementById("btnOpenReport"),
+  btnOpenReportPdf: document.getElementById("btnOpenReportPdf"),
 };
 
 let selectedEngagement = null;
 let busy = false;
 let pollTimer = null;
+let progressPollTimer = null;
+let watchingJobId = null;
+let watchStartedAt = null;
 let lastCatalog = null;
 let defaultPipeline = ["nmap", "whatweb", "gobuster", "sslscan", "nuclei"];
 let updateCheckInFlight = false;
 let checkedUpdateAfterConnect = false;
+let activeTab = "dashboard";
 
 function setBusy(value) {
   busy = value;
-  el.btnCreate.disabled = value;
-  el.btnLogin.disabled = value;
+  if (el.btnCreate) el.btnCreate.disabled = value;
+  if (el.btnLogin) el.btnLogin.disabled = value;
   document.querySelectorAll("[data-action]").forEach((btn) => {
     btn.disabled = value;
   });
+}
+
+function toast(message, kind = "info") {
+  if (!el.toastHost) return;
+  const node = document.createElement("div");
+  node.className = `toast toast-${kind}`;
+  node.textContent = message;
+  el.toastHost.appendChild(node);
+  setTimeout(() => {
+    node.classList.add("toast-out");
+    setTimeout(() => node.remove(), 280);
+  }, 3200);
 }
 
 function applyUpdaterStatus(payload) {
@@ -62,9 +104,20 @@ function applyUpdaterStatus(payload) {
   const state = payload.state || "idle";
   el.updateBanner.dataset.state = state;
   el.updateStatus.textContent = payload.message || "Atualização…";
+  const interesting = ["checking", "downloading", "available", "ready", "error"].includes(state);
+  el.updateBanner.hidden = !interesting && state !== "up-to-date";
+  if (state === "up-to-date") {
+    el.updateBanner.hidden = false;
+    setTimeout(() => {
+      if (el.updateBanner.dataset.state === "up-to-date") el.updateBanner.hidden = true;
+    }, 4000);
+  }
   const ready = state === "ready";
   el.btnInstallUpdate.hidden = !ready;
   el.btnCheckUpdate.disabled = state === "checking" || state === "downloading";
+  if (el.btnCheckUpdateLab) {
+    el.btnCheckUpdateLab.disabled = state === "checking" || state === "downloading";
+  }
 }
 
 async function checkForAppUpdates() {
@@ -90,6 +143,32 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;");
 }
 
+function formatDate(value) {
+  if (!value) return "—";
+  try {
+    return new Date(value).toLocaleString("pt-BR", {
+      dateStyle: "short",
+      timeStyle: "short",
+    });
+  } catch {
+    return String(value);
+  }
+}
+
+function switchTab(name) {
+  activeTab = name;
+  document.querySelectorAll(".tab").forEach((tab) => {
+    const on = tab.dataset.tab === name;
+    tab.classList.toggle("active", on);
+    tab.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  document.querySelectorAll(".tab-panel").forEach((panel) => {
+    const on = panel.dataset.panel === name;
+    panel.hidden = !on;
+    panel.classList.toggle("active", on);
+  });
+}
+
 function showLogin() {
   el.loginPanel.hidden = false;
   el.appPanels.hidden = true;
@@ -97,6 +176,7 @@ function showLogin() {
     clearInterval(pollTimer);
     pollTimer = null;
   }
+  stopProgressWatch();
 }
 
 function showApp(config) {
@@ -107,7 +187,7 @@ function showApp(config) {
   if (!pollTimer) {
     pollTimer = setInterval(() => {
       refresh().catch(() => {});
-    }, 3000);
+    }, 2500);
   }
 }
 
@@ -120,6 +200,17 @@ async function loadConfigIntoForm() {
   return config;
 }
 
+async function loadAppVersion() {
+  try {
+    if (window.ethoscan?.getAppVersion) {
+      const v = await window.ethoscan.getAppVersion();
+      if (v && el.appVersion) el.appVersion.textContent = `v${v}`;
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 function renderHealth(health) {
   if (!health) {
     el.healthMeta.textContent = "Sem dados de health.";
@@ -129,10 +220,8 @@ function renderHealth(health) {
 
   el.healthMeta.textContent = [
     `estado: ${health.status}`,
-    `modo: ${health.mode}`,
-    `auth: ${health.auth_enabled ? "on" : "off"}`,
-    `login local: ${health.local_login_available ? "sim" : "não"}`,
     `redis: ${health.redis_ok ? "ok" : "down"}`,
+    `auth: ${health.auth_enabled ? "on" : "off"}`,
     `mock: ${health.mock_allowed ? "permitido" : "off"}`,
   ].join(" · ");
 
@@ -207,7 +296,9 @@ function renderToolCatalog(catalog) {
     defaultPipeline = catalog.default_pipeline;
   }
   if (catalog.note && el.toolCatalogHint) {
-    el.toolCatalogHint.textContent = catalog.note;
+    el.toolCatalogHint.innerHTML =
+      "Vazio = pipeline clássico. <strong>ZAP</strong> = scan automatizado no pipeline; " +
+      "<strong>Burp</strong> = só lançamento GUI. Metasploit = aux/scanner apenas.";
   }
 
   const tools = (catalog.tools || []).filter(
@@ -222,19 +313,25 @@ function renderToolCatalog(catalog) {
   el.toolCatalog.innerHTML = tools
     .map((t) => {
       const canRun = Boolean(t.runnable) && (Boolean(t.available) || Boolean(t.will_mock));
-      const disabled = !canRun;
+      const disabled = !canRun && t.id !== "burpsuite";
       const checked = prev.has(t.id);
       const status = escapeHtml(t.status || "");
+      const burpNote =
+        t.id === "burpsuite"
+          ? " — GUI apenas (não entra no pipeline)"
+          : t.id === "zap"
+            ? " — scan automatizado + relatório"
+            : "";
       return `<label class="tool-select-item">
-        <input type="checkbox" data-tool-id="${escapeHtml(t.id)}" ${disabled ? "disabled" : ""} ${
-          !disabled && checked ? "checked" : ""
-        } />
+        <input type="checkbox" data-tool-id="${escapeHtml(t.id)}" ${
+          disabled || t.id === "burpsuite" ? "disabled" : ""
+        } ${!disabled && checked ? "checked" : ""} />
         <span>
           <strong>${escapeHtml(t.display_name || t.id)}</strong>
           <span class="mode-badge ${t.available ? "real" : t.will_mock ? "mock" : "down"}">${status}</span>
         </span>
-        <span class="meta">${escapeHtml(t.description || "")}${
-          t.ethics_note ? ` — ${escapeHtml(t.ethics_note)}` : ""
+        <span class="meta">${escapeHtml(t.description || "")}${burpNote}${
+          t.ethics_note && t.id !== "burpsuite" ? ` — ${escapeHtml(t.ethics_note)}` : ""
         }</span>
       </label>`;
     })
@@ -255,7 +352,7 @@ function getSelectedToolsFromForm() {
 
 function renderEngagements(engagements) {
   if (!engagements.length) {
-    el.engagementList.innerHTML = `<p class="meta">Nenhum engagement ainda.</p>`;
+    el.engagementList.innerHTML = `<p class="meta">Nenhum engagement ainda. Crie o primeiro à esquerda.</p>`;
     return;
   }
 
@@ -264,6 +361,7 @@ function renderEngagements(engagements) {
       (e) => `<div class="item">
         <strong>#${e.id} ${escapeHtml(e.name)}</strong>
         <div class="meta">${escapeHtml((e.scope_targets || []).join(", "))} · ${escapeHtml(e.intensity)}</div>
+        <div class="meta">${formatDate(e.created_at)}</div>
         <div class="row" style="margin-top: 0.65rem">
           <button class="btn" data-action="start" data-id="${e.id}">Rodar pipeline</button>
           <button class="btn secondary" data-action="select" data-id="${e.id}">Ver achados</button>
@@ -274,9 +372,10 @@ function renderEngagements(engagements) {
 }
 
 function renderJobs(jobs) {
-  const slice = jobs.slice(0, 8);
+  const active = jobs.filter((j) => j.status === "pending" || j.status === "running");
+  const slice = (active.length ? active : jobs).slice(0, 12);
   if (!slice.length) {
-    el.jobList.innerHTML = `<p class="meta">Sem jobs.</p>`;
+    el.jobList.innerHTML = `<p class="meta">Sem jobs. Inicie um pipeline a partir de um engagement.</p>`;
     return;
   }
 
@@ -285,31 +384,30 @@ function renderJobs(jobs) {
       const cur = PHASE_ORDER.indexOf(j.phase);
       const pills = PHASE_ORDER.map((p, idx) => {
         const done = j.status === "completed" || (cur >= 0 && idx < cur);
-        const active = j.phase === p && j.status === "running";
-        return `<span class="phase-pill ${done ? "done" : ""} ${active ? "active" : ""}">${p}</span>`;
+        const activePhase = j.phase === p && j.status === "running";
+        return `<span class="phase-pill ${done ? "done" : ""} ${activePhase ? "active" : ""}">${p}</span>`;
       }).join("");
-
-      const toolRuns = Object.entries(j.tool_runs || {})
-        .map(
-          ([tool, info]) =>
-            `<span class="mode-badge ${info.mocked ? "mock" : "real"}">${escapeHtml(tool)}:${info.mocked ? "mock" : "real"}</span>`,
-        )
-        .join("");
 
       const actions = [];
       if (j.status === "pending" || j.status === "running") {
+        actions.push(
+          `<button class="btn secondary" data-action="watch" data-id="${j.id}">Ver progresso</button>`,
+        );
         actions.push(
           `<button class="btn secondary" data-action="cancel" data-id="${j.id}">Cancelar</button>`,
         );
       }
       if (j.status === "completed") {
         actions.push(
-          `<button class="btn" data-action="report" data-id="${j.id}">Descarregar HTML</button>`,
+          `<button class="btn" data-action="report" data-id="${j.id}">HTML</button>`,
         );
         actions.push(
-          `<button class="btn" data-action="report-pdf" data-id="${j.id}">Descarregar PDF</button>`,
+          `<button class="btn secondary" data-action="report-pdf" data-id="${j.id}">PDF</button>`,
         );
       }
+      actions.push(
+        `<button class="btn secondary" data-action="copy-id" data-id="${j.id}">Copiar ID</button>`,
+      );
 
       return `<div class="item">
         <strong>Job #${j.id} · eng ${j.engagement_id}</strong>
@@ -319,7 +417,48 @@ function renderJobs(jobs) {
           ${j.current_tool ? ` · ${escapeHtml(j.current_tool)}` : ""}
           ${j.error ? ` · erro: ${escapeHtml(j.error)}` : ""}
         </div>
-        <div class="tool-run-row">${toolRuns}</div>
+        <div class="row" style="margin-top: 0.65rem">${actions.join("")}</div>
+      </div>`;
+    })
+    .join("");
+}
+
+function renderHistory(items) {
+  if (!el.historyList) return;
+  if (!items.length) {
+    el.historyList.innerHTML = `<p class="meta">Sem histórico ainda. Os jobs concluídos aparecem aqui.</p>`;
+    return;
+  }
+
+  el.historyList.innerHTML = items
+    .map((h) => {
+      const tools = (h.selected_tools || []).join(", ") || "pipeline clássico";
+      const actions = [];
+      if (h.has_html_report) {
+        actions.push(
+          `<button class="btn" data-action="report" data-id="${h.job_id}">HTML</button>`,
+        );
+      }
+      if (h.has_pdf_report && h.status === "completed") {
+        actions.push(
+          `<button class="btn secondary" data-action="report-pdf" data-id="${h.job_id}">PDF</button>`,
+        );
+      }
+      actions.push(
+        `<button class="btn secondary" data-action="copy-id" data-id="${h.job_id}">Copiar ID</button>`,
+      );
+      if (h.status === "pending" || h.status === "running") {
+        actions.push(
+          `<button class="btn secondary" data-action="watch" data-id="${h.job_id}">Progresso</button>`,
+        );
+      }
+      return `<div class="item">
+        <strong>Job #${h.job_id} · ${escapeHtml(h.engagement_name)}</strong>
+        <div class="meta">
+          ${escapeHtml(h.status)} · ${escapeHtml(h.intensity)} ·
+          ${h.findings_count} achado(s) · ${formatDate(h.finished_at || h.created_at)}
+        </div>
+        <div class="meta">Tools: ${escapeHtml(tools)}</div>
         <div class="row" style="margin-top: 0.65rem">${actions.join("")}</div>
       </div>`;
     })
@@ -329,14 +468,14 @@ function renderJobs(jobs) {
 function renderFindings(findings) {
   el.findingsTitle.textContent = selectedEngagement
     ? `Achados (engagement #${selectedEngagement})`
-    : "Achados";
+    : "Achados recentes";
 
   const filtered = findings.filter((f) =>
     selectedEngagement ? f.engagement_id === selectedEngagement : true,
   );
 
   if (!filtered.length) {
-    el.findingList.innerHTML = `<p class="meta">Sem achados ainda.</p>`;
+    el.findingList.innerHTML = `<p class="meta">Sem achados ainda. Corra um job para ver resultados aqui.</p>`;
     return;
   }
 
@@ -356,6 +495,106 @@ function renderFindings(findings) {
       </div>`,
     )
     .join("");
+}
+
+function roughEta(job) {
+  if (!watchStartedAt || !job || job.progress <= 0) return "";
+  if (job.status === "completed" || job.status === "failed" || job.status === "cancelled") {
+    return "";
+  }
+  const elapsed = (Date.now() - watchStartedAt) / 1000;
+  const pct = Math.max(job.progress, 1);
+  const totalEst = (elapsed / pct) * 100;
+  const remain = Math.max(0, Math.round(totalEst - elapsed));
+  if (remain < 5) return "ETA ~ poucos segundos";
+  if (remain < 90) return `ETA ~ ${remain}s`;
+  return `ETA ~ ${Math.round(remain / 60)} min`;
+}
+
+function updateProgressModal(job) {
+  if (!job || !el.progressDialog) return;
+  el.progressJobMeta.textContent = `Job #${job.id} · eng ${job.engagement_id} · ${job.status}`;
+  const pct = Math.min(100, Math.max(0, Number(job.progress) || 0));
+  el.progressBar.style.width = `${pct}%`;
+  el.progressPct.textContent = `${pct}%`;
+  const cur = PHASE_ORDER.indexOf(job.phase);
+  el.progressPhases.innerHTML = PHASE_ORDER.map((p, idx) => {
+    const done = job.status === "completed" || (cur >= 0 && idx < cur);
+    const active = job.phase === p && (job.status === "running" || job.status === "pending");
+    const label = PHASE_LABELS[p] || p;
+    return `<span class="phase-pill ${done ? "done" : ""} ${active ? "active" : ""}" title="${label}">${p}</span>`;
+  }).join("");
+
+  if (job.status === "pending") {
+    el.progressTool.textContent = "Na fila do worker…";
+  } else if (job.current_tool) {
+    el.progressTool.textContent = `Tool atual: ${job.current_tool} · fase ${job.phase} (${PHASE_LABELS[job.phase] || ""})`;
+  } else {
+    el.progressTool.textContent = `Fase ${job.phase} (${PHASE_LABELS[job.phase] || job.phase})`;
+  }
+  el.progressEta.textContent = roughEta(job);
+
+  const terminal = ["completed", "failed", "cancelled"].includes(job.status);
+  el.btnCancelProgress.hidden = terminal;
+  el.btnOpenReport.hidden = !(job.status === "completed");
+  el.btnOpenReportPdf.hidden = !(job.status === "completed");
+
+  if (job.error) {
+    el.progressError.hidden = false;
+    el.progressError.textContent = job.error;
+  } else if (job.status === "completed") {
+    el.progressError.hidden = false;
+    el.progressError.textContent = "Concluído — pode abrir o relatório.";
+  } else {
+    el.progressError.hidden = true;
+    el.progressError.textContent = "";
+  }
+}
+
+function stopProgressWatch() {
+  if (progressPollTimer) {
+    clearInterval(progressPollTimer);
+    progressPollTimer = null;
+  }
+}
+
+function openProgressModal(jobId) {
+  watchingJobId = jobId;
+  watchStartedAt = Date.now();
+  el.btnOpenReport.dataset.id = String(jobId);
+  el.btnOpenReportPdf.dataset.id = String(jobId);
+  el.btnCancelProgress.dataset.id = String(jobId);
+  el.btnCopyJobId.dataset.id = String(jobId);
+  updateProgressModal({
+    id: jobId,
+    engagement_id: "—",
+    status: "pending",
+    phase: "F0",
+    progress: 0,
+    current_tool: null,
+  });
+  if (typeof el.progressDialog.showModal === "function") {
+    el.progressDialog.showModal();
+  } else {
+    el.progressDialog.setAttribute("open", "");
+  }
+  stopProgressWatch();
+  const tick = async () => {
+    if (watchingJobId == null) return;
+    try {
+      const job = await window.ethoscan.getJob(watchingJobId);
+      updateProgressModal(job);
+      if (["completed", "failed", "cancelled"].includes(job.status)) {
+        stopProgressWatch();
+        refresh().catch(() => {});
+      }
+    } catch (err) {
+      el.progressError.hidden = false;
+      el.progressError.textContent = String(err.message || err);
+    }
+  };
+  tick();
+  progressPollTimer = setInterval(tick, 1200);
 }
 
 async function refresh() {
@@ -378,20 +617,22 @@ async function refresh() {
       renderToolCatalog(null);
     }
 
-    const [engagements, jobs, findings] = await Promise.all([
+    const [engagements, jobs, findings, history] = await Promise.all([
       window.ethoscan.listEngagements(),
       window.ethoscan.listJobs(),
       window.ethoscan.listFindings(
         selectedEngagement ? { engagementId: selectedEngagement } : {},
       ),
+      window.ethoscan.listHistory ? window.ethoscan.listHistory() : Promise.resolve([]),
     ]);
 
     renderEngagements(engagements);
     renderJobs(jobs);
     renderFindings(findings);
+    renderHistory(history || []);
 
     el.connectionStatus.textContent = health.redis_ok
-      ? `API ok · Redis ok · auth ${health.auth_enabled ? "on" : "off"} · mock ${health.mock_allowed ? "on" : "off"}`
+      ? `API ok · Redis ok · auth ${health.auth_enabled ? "on" : "off"}`
       : `API ok · Redis DOWN — ${health.worker_hint || "suba Redis + worker"}`;
     if (!checkedUpdateAfterConnect) {
       checkedUpdateAfterConnect = true;
@@ -401,6 +642,7 @@ async function refresh() {
     el.connectionStatus.textContent = `API indisponível — ${err.message || err}`;
     renderHealth(null);
     renderLabInventory(null);
+    toast(String(err.message || err), "error");
     if (err.status === 401) {
       await window.ethoscan.logout();
       showLogin();
@@ -413,7 +655,6 @@ async function probeLoginGate() {
   const config = await loadConfigIntoForm();
   let health = null;
   try {
-    // health é público — usa fetch via IPC que inclui apiKey se existir
     health = await window.ethoscan.health();
     el.loginStatus.textContent = health.local_login_available
       ? "API ok — entre com utilizador/palavra-passe local."
@@ -444,7 +685,6 @@ async function probeLoginGate() {
   }
 
   if (!health.auth_enabled && !hasSession) {
-    // Lab aberto: entrar direto na app
     showApp(config);
     await refresh();
     return;
@@ -472,6 +712,7 @@ el.loginForm.addEventListener("submit", async (ev) => {
       el.password.value = "";
       checkedUpdateAfterConnect = false;
       showApp(config);
+      switchTab("dashboard");
       await refresh();
       checkForAppUpdates().catch(() => {});
       return;
@@ -487,6 +728,7 @@ el.loginForm.addEventListener("submit", async (ev) => {
       await window.ethoscan.listEngagements();
       checkedUpdateAfterConnect = false;
       showApp(config);
+      switchTab("dashboard");
       await refresh();
       checkForAppUpdates().catch(() => {});
       return;
@@ -496,6 +738,7 @@ el.loginForm.addEventListener("submit", async (ev) => {
       "Indique utilizador + palavra-passe, ou uma X-API-Key no painel avançado.";
   } catch (err) {
     el.loginStatus.textContent = String(err.message || err);
+    toast(String(err.message || err), "error");
   } finally {
     setBusy(false);
   }
@@ -511,6 +754,7 @@ el.btnSkipAuth.addEventListener("click", async () => {
     });
     checkedUpdateAfterConnect = false;
     showApp(config);
+    switchTab("dashboard");
     await refresh();
     checkForAppUpdates().catch(() => {});
   } catch (err) {
@@ -533,12 +777,18 @@ el.btnRefresh.addEventListener("click", () => {
     .then(() => checkForAppUpdates())
     .catch((err) => {
       el.connectionStatus.textContent = String(err.message || err);
+      toast(String(err.message || err), "error");
     });
 });
 
-el.btnCheckUpdate.addEventListener("click", () => {
-  checkForAppUpdates().catch(() => {});
-});
+function wireUpdateCheck(btn) {
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    checkForAppUpdates().catch(() => {});
+  });
+}
+wireUpdateCheck(el.btnCheckUpdate);
+wireUpdateCheck(el.btnCheckUpdateLab);
 
 el.btnInstallUpdate.addEventListener("click", async () => {
   el.btnInstallUpdate.disabled = true;
@@ -557,14 +807,28 @@ el.btnInstallUpdate.addEventListener("click", async () => {
   }
 });
 
+document.querySelectorAll(".tab").forEach((tab) => {
+  tab.addEventListener("click", () => switchTab(tab.dataset.tab));
+});
+
+document.body.addEventListener("click", (ev) => {
+  const goto = ev.target.closest("[data-goto]");
+  if (goto) {
+    switchTab(goto.dataset.goto);
+  }
+});
+
 if (el.btnLaunchBurp) {
   el.btnLaunchBurp.addEventListener("click", async () => {
     setBusy(true);
     try {
       const res = await window.ethoscan.launchBurp();
-      el.formStatus.textContent = res.message || (res.launched ? "Burp lançado." : "Burp indisponível.");
+      const msg = res.message || (res.launched ? "Burp lançado." : "Burp indisponível.");
+      el.formStatus.textContent = msg;
+      toast(msg, res.launched ? "info" : "error");
     } catch (err) {
       el.formStatus.textContent = String(err.message || err);
+      toast(String(err.message || err), "error");
     } finally {
       setBusy(false);
     }
@@ -573,8 +837,10 @@ if (el.btnLaunchBurp) {
 
 el.createForm.addEventListener("submit", async (ev) => {
   ev.preventDefault();
+  if (busy) return;
   if (!el.ack.checked) {
     el.formStatus.textContent = "Confirme o RoE/autorização antes de criar.";
+    toast("Confirme o RoE antes de criar.", "error");
     return;
   }
   setBusy(true);
@@ -592,11 +858,74 @@ el.createForm.addEventListener("submit", async (ev) => {
     });
     selectedEngagement = eng.id;
     el.formStatus.textContent = `Engagement #${eng.id} criado`;
+    toast(`Engagement #${eng.id} criado`, "info");
     await refresh();
   } catch (err) {
     el.formStatus.textContent = String(err.message || err);
+    toast(String(err.message || err), "error");
   } finally {
     setBusy(false);
+  }
+});
+
+async function copyJobId(id) {
+  const text = String(id);
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(`Job #${text} copiado`, "info");
+  } catch {
+    toast(`Job ID: ${text}`, "info");
+  }
+}
+
+el.btnDismissProgress.addEventListener("click", () => {
+  stopProgressWatch();
+  watchingJobId = null;
+  if (el.progressDialog.open) el.progressDialog.close();
+});
+
+el.btnCopyJobId.addEventListener("click", () => {
+  const id = el.btnCopyJobId.dataset.id || watchingJobId;
+  if (id) copyJobId(id);
+});
+
+el.btnCancelProgress.addEventListener("click", async () => {
+  const id = Number(el.btnCancelProgress.dataset.id || watchingJobId);
+  if (!id) return;
+  try {
+    await window.ethoscan.cancelJob(id);
+    toast(`Cancelamento pedido para job #${id}`, "info");
+    el.formStatus.textContent = `Cancelamento pedido para job #${id}`;
+  } catch (err) {
+    toast(String(err.message || err), "error");
+  }
+});
+
+el.btnOpenReport.addEventListener("click", async () => {
+  const id = Number(el.btnOpenReport.dataset.id || watchingJobId);
+  if (!id) return;
+  try {
+    const result = await window.ethoscan.downloadReport(id);
+    if (result.saved) {
+      await window.ethoscan.openPath(result.path);
+      toast("Relatório HTML aberto", "info");
+    }
+  } catch (err) {
+    toast(String(err.message || err), "error");
+  }
+});
+
+el.btnOpenReportPdf.addEventListener("click", async () => {
+  const id = Number(el.btnOpenReportPdf.dataset.id || watchingJobId);
+  if (!id) return;
+  try {
+    const result = await window.ethoscan.downloadReportPdf(id);
+    if (result.saved) {
+      await window.ethoscan.openPath(result.path);
+      toast("PDF aberto", "info");
+    }
+  } catch (err) {
+    toast(String(err.message || err), "error");
   }
 });
 
@@ -609,7 +938,18 @@ document.body.addEventListener("click", async (ev) => {
 
   if (action === "select") {
     selectedEngagement = id;
+    switchTab("dashboard");
     await refresh();
+    return;
+  }
+
+  if (action === "copy-id") {
+    await copyJobId(id);
+    return;
+  }
+
+  if (action === "watch") {
+    openProgressModal(id);
     return;
   }
 
@@ -622,14 +962,19 @@ document.body.addEventListener("click", async (ev) => {
       });
       selectedEngagement = id;
       el.formStatus.textContent = `Job #${data.job.id} enfileirado no worker`;
+      toast(`Job #${data.job.id} iniciado`, "info");
+      switchTab("jobs");
+      openProgressModal(data.job.id);
     } else if (action === "cancel") {
       await window.ethoscan.cancelJob(id);
       el.formStatus.textContent = `Cancelamento pedido para job #${id}`;
+      toast(`Cancelamento pedido para job #${id}`, "info");
     } else if (action === "report") {
       const result = await window.ethoscan.downloadReport(id);
       if (result.saved) {
         el.formStatus.textContent = `Relatório guardado: ${result.path}`;
         await window.ethoscan.openPath(result.path);
+        toast("Relatório HTML guardado", "info");
       } else {
         el.formStatus.textContent = "Download cancelado.";
       }
@@ -638,6 +983,7 @@ document.body.addEventListener("click", async (ev) => {
       if (result.saved) {
         el.formStatus.textContent = `PDF guardado: ${result.path}`;
         await window.ethoscan.openPath(result.path);
+        toast("PDF guardado", "info");
       } else {
         el.formStatus.textContent = "Download cancelado.";
       }
@@ -645,16 +991,17 @@ document.body.addEventListener("click", async (ev) => {
     await refresh();
   } catch (err) {
     el.formStatus.textContent = String(err.message || err);
+    toast(String(err.message || err), "error");
   } finally {
     setBusy(false);
   }
 });
 
 (async function boot() {
+  await loadAppVersion();
   if (window.ethoscan?.onUpdaterStatus) {
     window.ethoscan.onUpdaterStatus(applyUpdaterStatus);
   }
-  // Verificação independente da API (arranque / offline API)
   checkForAppUpdates().catch(() => {});
   await probeLoginGate();
 })();

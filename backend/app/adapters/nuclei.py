@@ -35,10 +35,29 @@ class NucleiAdapter(BaseAdapter):
             "-o",
             str(out_file),
             "-silent",
+            "-no-interactsh",
         ]
         if intensity == "safe":
-            cmd.extend(["-rate-limit", "20"])
-        stdout, stderr, _ = self._exec(cmd, timeout=600)
+            # Rate/concurrency limitados; exclui templates pesados; sem Interactsh.
+            cmd.extend(
+                [
+                    "-rate-limit",
+                    "25",
+                    "-c",
+                    "15",
+                    "-timeout",
+                    "5",
+                    "-etags",
+                    "dos,fuzz,intrusive",
+                ]
+            )
+            timeout = 300
+        elif intensity == "standard":
+            cmd.extend(["-rate-limit", "50", "-c", "25", "-timeout", "8", "-etags", "dos"])
+            timeout = 420
+        else:
+            timeout = 600
+        stdout, stderr, _ = self._exec(cmd, timeout=timeout)
         content = out_file.read_text() if out_file.exists() else stdout
         findings = self._parse_jsonl(content, target)
         return AdapterResult(
