@@ -1,0 +1,17 @@
+{
+  "name": "ethoscan-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shell Electron local para o Ethoscan — dispara pentests éticos via API existente",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron ."
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "electron": "^35.0.0"
+  }
+}

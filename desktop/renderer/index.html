@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; script-src 'self'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ethoscan Desktop</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;650&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <h1 class="brand">Ethoscan</h1>
+        <p class="tagline">
+          Shell desktop local. Dispara assessments éticos via a API existente — escopo
+          allowlist, RoE obrigatório, pipeline F0–F6. Intensidade recomendada:
+          <strong>safe</strong>.
+        </p>
+      </header>
+
+      <section class="panel config-panel">
+        <h2>Ligação à API</h2>
+        <div class="grid-2">
+          <div class="field">
+            <label for="apiBaseUrl">URL base da API</label>
+            <input id="apiBaseUrl" type="url" spellcheck="false" />
+          </div>
+          <div class="field">
+            <label for="apiKey">X-API-Key (opcional)</label>
+            <input id="apiKey" type="password" autocomplete="off" spellcheck="false" />
+          </div>
+        </div>
+        <div class="row">
+          <button class="btn" id="btnSaveConfig" type="button">Guardar</button>
+          <button class="btn secondary" id="btnRefresh" type="button">Atualizar</button>
+        </div>
+        <p class="status" id="connectionStatus">A carregar…</p>
+      </section>
+
+      <section class="panel">
+        <h2>Health · tools</h2>
+        <div class="health-meta" id="healthMeta"></div>
+        <div class="tool-grid" id="toolGrid">
+          <p class="meta">Aguardando /health…</p>
+        </div>
+      </section>
+
+      <div class="grid">
+        <section class="panel">
+          <h2>Novo engagement</h2>
+          <form id="createForm">
+            <div class="field">
+              <label for="name">Nome</label>
+              <input id="name" value="Lab local" required minlength="2" />
+            </div>
+            <div class="field">
+              <label for="targets">Alvos (escopo)</label>
+              <textarea
+                id="targets"
+                required
+                placeholder="dominio.com ou IP, um por linha"
+              >scanme.nmap.org</textarea>
+            </div>
+            <div class="field">
+              <label for="intensity">Intensidade (recomendado: safe)</label>
+              <select id="intensity">
+                <option value="safe" selected>safe — recomendado</option>
+                <option value="standard">standard — lab próprio / RoE explícito</option>
+                <option value="aggressive">aggressive — lab controlado apenas</option>
+              </select>
+            </div>
+            <label class="checkbox">
+              <input id="ack" type="checkbox" />
+              <span>
+                Confirmo autorização/RoE: assessment apenas nos alvos do escopo, em contexto
+                ético.
+              </span>
+            </label>
+            <div class="row" style="margin-top: 1rem">
+              <button class="btn" type="submit" id="btnCreate">Criar engagement</button>
+            </div>
+          </form>
+          <p class="status" id="formStatus"></p>
+        </section>
+
+        <section class="panel">
+          <h2>Engagements</h2>
+          <div class="list" id="engagementList">
+            <p class="meta">Nenhum engagement ainda.</p>
+          </div>
+        </section>
+      </div>
+
+      <section class="panel">
+        <h2>Jobs · progresso F0–F6</h2>
+        <div class="list" id="jobList">
+          <p class="meta">Sem jobs.</p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2 id="findingsTitle">Achados</h2>
+        <div class="list" id="findingList">
+          <p class="meta">Sem achados ainda.</p>
+        </div>
+      </section>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>

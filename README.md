@@ -1,13 +1,14 @@
 # Ethoscan
 
-Orquestrador local de **pentest ético** (CLI + API + dashboard + worker).
+Orquestrador local de **pentest ético** (CLI + API + dashboard + desktop + worker).
 
 - Pipeline **F0–F6** (gate RoE/escopo/tools → recon → enum → web → vuln → correlação → relatório)
 - Escopo allowlist + RoE obrigatório + audit log
 - Adapters: Nmap, WhatWeb, Gobuster, sslscan, Nuclei
 - Worker dedicado via **Redis** (a API não bloqueia em scans longos)
+- Shell **Electron** opcional (`desktop/`) para Kali/Windows — client fino da API
 - Intensidade padrão recomendada: **`safe`**
-- Auth mínima por API key + CORS restrito à UI
+- Auth mínima por API key + CORS restrito à UI web
 
 > Perdido no fluxo de chamadas (API → Redis → worker → orchestrator → adapters)? Ver
 > [docs/architecture.md](docs/architecture.md) — diagramas de sequência e mapa de arquivos por camada.
@@ -47,8 +48,8 @@ O mock não gera tráfego real de scan; serve para exercitar API, UI, pipeline e
 ## Arquitetura (API + worker)
 
 ```
-UI / CLI  →  API (FastAPI)  →  Redis queue  →  Worker (python -m app.worker)
-                                ↑ cancel flags
+UI / CLI / Desktop  →  API (FastAPI)  →  Redis queue  →  Worker (python -m app.worker)
+                                          ↑ cancel flags
 ```
 
 - A API **enfileira** jobs; o **worker** executa o pipeline fora do processo HTTP
@@ -81,11 +82,29 @@ python -m app.worker
 
 # Dashboard (outro terminal)
 cd frontend && npm install && npm run dev
+
+# Desktop Electron (opcional; outro terminal — requer API + worker + Redis já a correr)
+cd desktop && npm install && npm start
 ```
 
 - API: http://localhost:8000/docs  
 - UI: http://localhost:3000  
 - Health (público): http://localhost:8000/health  
+- Desktop: app nativa que fala com a mesma API (`127.0.0.1:8000` por omissão)
+
+### Desktop Electron (MVP)
+
+Shell local mínimo (Kali/Windows) para configurar a API, ver `/health`, criar engagement (RoE obrigatório), arrancar/cancelar jobs F0–F6, listar achados e descarregar o relatório. **Não** substitui o scanner — só chama a API existente (RoE/allowlist/auth intactos).
+
+Pré-requisitos: API + Redis + worker já a correr (ver passos acima). Uso ético apenas; preferir bind localhost.
+
+```bash
+cd desktop
+npm install
+npm start
+```
+
+Na UI desktop: URL base (default `http://127.0.0.1:8000`) e `X-API-Key` opcional (mesma key que `ETHOSCAN_API_KEY`). As chamadas saem do processo principal do Electron (sem alterar CORS da API).
 
 ### Com Docker
 
@@ -155,7 +174,8 @@ Só é aceitável em lab isolado. Sem key e sem `DISABLE_AUTH` em `mode=local`, 
 **Checklist — não publicar casualmente na LAN**
 
 - [ ] Porta **8000** (API)
-- [ ] Porta **3000** (dashboard)
+- [ ] Porta **3000** (dashboard web)
+- [ ] App desktop Electron (só cliente local; ainda depende da API em 8000)
 - [ ] Porta **5432** (Postgres do compose)
 - [ ] Porta **6379** (Redis)
 

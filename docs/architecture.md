@@ -13,6 +13,7 @@ Não há chamada de função direta entre eles.
 ```mermaid
 flowchart LR
     web["web (Next.js :3000)\nfrontend/app/page.tsx"] -->|HTTP fetch| api
+    desktop["desktop (Electron)\ndesktop/main.js"] -->|HTTP fetch IPC| api
     cli["cli.py (Typer)"] -->|HTTP httpx| api
     api["api (FastAPI :8000)\nbackend/app/main.py"] -->|LPUSH job_id| redis[(Redis)]
     api -->|read/write| pg[(Postgres/SQLite)]
