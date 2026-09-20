@@ -34,7 +34,7 @@ _CATALOG_DEFS: list[dict[str, Any]] = [
         "launchable": False,
         "intensity_min": "safe",
         "description": "Enumera portas e serviços no alvo allowlisted (defaults conservadores).",
-        "default_args_hint": "-Pn -sV --top-ports 100 -T3",
+        "default_args_hint": "-Pn -sV --top-ports 50 -T4 (safe)",
     },
     {
         "id": "whatweb",
@@ -45,7 +45,7 @@ _CATALOG_DEFS: list[dict[str, Any]] = [
         "launchable": False,
         "intensity_min": "safe",
         "description": "Fingerprint de tecnologias web no alvo do escopo.",
-        "default_args_hint": "--color=never --log-verbose=…",
+        "default_args_hint": "--color=never -a 1 (safe)",
     },
     {
         "id": "gobuster",
@@ -55,8 +55,8 @@ _CATALOG_DEFS: list[dict[str, Any]] = [
         "runnable": True,
         "launchable": False,
         "intensity_min": "safe",
-        "description": "Descoberta de caminhos HTTP com wordlist comum (threads limitadas).",
-        "default_args_hint": "dir -w common.txt -t 10",
+        "description": "Descoberta de caminhos HTTP com wordlist curta e threads limitadas.",
+        "default_args_hint": "dir -w small|common.txt -t 8 (safe)",
     },
     {
         "id": "sslscan",
@@ -67,7 +67,7 @@ _CATALOG_DEFS: list[dict[str, Any]] = [
         "launchable": False,
         "intensity_min": "safe",
         "description": "Análise TLS/SSL do serviço HTTPS no alvo.",
-        "default_args_hint": "--no-failed <host>",
+        "default_args_hint": "--no-colour --no-heartbleed <host>",
     },
     {
         "id": "nuclei",
@@ -77,8 +77,8 @@ _CATALOG_DEFS: list[dict[str, Any]] = [
         "runnable": True,
         "launchable": False,
         "intensity_min": "safe",
-        "description": "Templates de vulnerabilidade (severidades limitadas em safe).",
-        "default_args_hint": "-severity info,low,medium -rate-limit 20",
+        "description": "Templates focados (misconfig/cve); severidades e rate limitados em safe.",
+        "default_args_hint": "-severity info,low,medium -rate-limit 25 -c 15 -etags dos,fuzz (safe)",
     },
     {
         "id": "nikto",
@@ -89,7 +89,7 @@ _CATALOG_DEFS: list[dict[str, Any]] = [
         "launchable": False,
         "intensity_min": "safe",
         "description": "Scanner web clássico com tempo máximo e sem exploits.",
-        "default_args_hint": "-h <alvo> -maxtime 120s",
+        "default_args_hint": "-h <alvo> -maxtime 60s (safe)",
     },
     {
         "id": "masscan",
@@ -99,8 +99,11 @@ _CATALOG_DEFS: list[dict[str, Any]] = [
         "runnable": True,
         "launchable": False,
         "intensity_min": "safe",
-        "description": "Scan de portas rápidas com rate baixo e portas top fixas (lab).",
-        "default_args_hint": "-p22,80,443,8080,8443 --rate 100",
+        "description": (
+            "Scan de portas rápidas (lab). Em safe/standard com nmap selecionado, "
+            "é omitido automaticamente (redundante)."
+        ),
+        "default_args_hint": "-p22,80,443,8080,8443 --rate 200 (safe)",
     },
     {
         "id": "zap",
@@ -111,10 +114,11 @@ _CATALOG_DEFS: list[dict[str, Any]] = [
         "launchable": False,
         "intensity_min": "safe",
         "description": (
-            "Scan web headless (alternativa ao Burp Community para relatório automatizado)."
+            "Scan web headless automatizado + relatório HTML. "
+            "Não confundir com Burp Suite (só lançamento GUI)."
         ),
-        "default_args_hint": "-cmd -quickurl <url> -quickout report.html",
-        "ethics_note": "Preferir ZAP para scans não assistidos; Burp CE é sobretudo GUI.",
+        "default_args_hint": "-cmd -quickurl <url> -quickout report.html (timeout 180s safe)",
+        "ethics_note": "ZAP = scan automatizado no pipeline. Burp CE = GUI manual apenas.",
     },
     {
         "id": "metasploit",
@@ -148,7 +152,10 @@ _CATALOG_DEFS: list[dict[str, Any]] = [
             "Para scan automatizado + PDF, use OWASP ZAP."
         ),
         "default_args_hint": "(lançamento GUI)",
-        "ethics_note": "Sem adapter headless; use ZAP para pipeline automatizado.",
+        "ethics_note": (
+            "Burp Suite Community = só lançamento GUI (manual). "
+            "Para scan automatizado no pipeline + PDF, selecione OWASP ZAP."
+        ),
         "status_label": "só lançamento GUI",
     },
 ]

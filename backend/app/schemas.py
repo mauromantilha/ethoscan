@@ -111,6 +111,31 @@ class JobStartResponse(BaseModel):
     message: str
 
 
+class HistoryItemOut(BaseModel):
+    """Resumo de jobs passados para a área Histórico (Desktop/API)."""
+
+    job_id: int
+    engagement_id: int
+    engagement_name: str
+    status: JobStatus
+    phase: str
+    progress: int
+    intensity: Intensity
+    selected_tools: list[str] = Field(default_factory=list)
+    findings_count: int = 0
+    has_html_report: bool = False
+    has_pdf_report: bool = False
+    error: str | None = None
+    created_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+    @field_validator("selected_tools", mode="before")
+    @classmethod
+    def coerce_selected(cls, value: list[str] | None) -> list[str]:
+        return list(value or [])
+
+
 class HealthOut(BaseModel):
     status: str
     mode: str

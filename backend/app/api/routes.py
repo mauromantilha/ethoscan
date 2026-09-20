@@ -18,6 +18,7 @@ from app.schemas import (
     EngagementCreate,
     EngagementOut,
     FindingOut,
+    HistoryItemOut,
     JobOut,
     JobStartRequest,
     JobStartResponse,
@@ -142,6 +143,43 @@ def list_jobs(engagement_id: int | None = None, db: Session = Depends(get_db)) -
     if engagement_id is not None:
         q = q.filter(Job.engagement_id == engagement_id)
     return q.order_by(Job.id.desc()).all()
+
+
+@router.get("/history", response_model=list[HistoryItemOut])
+def list_history(
+    limit: int = 50,
+    engagement_id: int | None = None,
+    db: Session = Depends(get_db),
+) -> list[HistoryItemOut]:
+    """Histórico de jobs com contagem de achados e flags de relatório."""
+    lim = max(1, min(limit, 200))
+    q = db.query(Job, Engagement).join(Engagement, Engagement.id == Job.engagement_id)
+    if engagement_id is not None:
+        q = q.filter(Job.engagement_id == engagement_id)
+    rows = q.order_by(Job.id.desc()).limit(lim).all()
+    items: list[HistoryItemOut] = []
+    for job, eng in rows:
+        count = db.query(Finding).filter(Finding.job_id == job.id).count()
+        items.append(
+            HistoryItemOut(
+                job_id=job.id,
+                engagement_id=eng.id,
+                engagement_name=eng.name,
+                status=job.status,
+                phase=job.phase,
+                progress=job.progress,
+                intensity=eng.intensity,
+                selected_tools=list(job.selected_tools or eng.selected_tools or []),
+                findings_count=count,
+                has_html_report=bool(job.report_path),
+                has_pdf_report=bool(job.report_pdf_path) or job.status == JobStatus.completed,
+                error=job.error,
+                created_at=job.created_at,
+                started_at=job.started_at,
+                finished_at=job.finished_at,
+            )
+        )
+    return items
 
 
 @router.get("/jobs/{job_id}", response_model=JobOut)

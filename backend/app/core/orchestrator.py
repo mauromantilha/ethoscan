@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
 from app.adapters import all_adapters, tools_status
+from app.adapters.base import AdapterResult
 from app.config import get_settings
 from app.core.authz import assert_in_scope, assert_roe
 from app.core.correlator import correlate
@@ -36,6 +38,12 @@ PHASE_LABELS = {
     "F5": "Correlação",
     "F6": "Relatório",
 }
+
+# Cap de paralelismo intra-fase (adapters independentes).
+_PHASE_PARALLEL_WORKERS = 3
+
+# Em safe/standard, masscan e msf-aux sobrepõem nmap — omitir se nmap já está selecionado.
+_REDUNDANT_WITH_NMAP = frozenset({"masscan", "metasploit"})
 
 
 class JobCancelled(Exception):
@@ -80,6 +88,36 @@ def _job_selected_tools(job: Job) -> list[str]:
     return resolve_selected_tools(stored if stored else None)
 
 
+def _prune_redundant_tools(selected: list[str], intensity: str) -> list[str]:
+    """Evita scanners de porta redundantes quando nmap já cobre o escopo."""
+    if intensity not in {"safe", "standard"}:
+        return selected
+    selected_set = set(selected)
+    if "nmap" not in selected_set:
+        return selected
+    pruned = [t for t in selected if t not in _REDUNDANT_WITH_NMAP]
+    return pruned if pruned else selected
+
+
+def _run_adapter_targets(
+    adapter,
+    targets: list[str],
+    scope_targets: list[str],
+    job_dir,
+    intensity: str,
+) -> tuple[AdapterResult | None, list, str | None]:
+    """Executa um adapter contra todos os alvos (thread-safe; sem sessão DB)."""
+    findings: list = []
+    last: AdapterResult | None = None
+    last_target: str | None = None
+    for target in targets:
+        assert_in_scope(target, scope_targets)
+        last = adapter.run(target, job_dir, intensity)
+        findings.extend(last.findings)
+        last_target = target
+    return last, findings, last_target
+
+
 def run_pipeline(db: Session, job_id: int) -> None:
     settings = get_settings()
     job = db.get(Job, job_id)
@@ -94,7 +132,10 @@ def run_pipeline(db: Session, job_id: int) -> None:
         return
 
     try:
-        selected = _job_selected_tools(job)
+        selected = _prune_redundant_tools(
+            _job_selected_tools(job),
+            engagement.intensity.value,
+        )
         job.selected_tools = selected
         job.status = JobStatus.running
         job.started_at = datetime.now(timezone.utc)
@@ -177,41 +218,67 @@ def run_pipeline(db: Session, job_id: int) -> None:
                 )
                 continue
 
-            for tool_name in tools:
-                if tool_name not in selected_set:
-                    continue
+            active = [t for t in tools if t in selected_set]
+            if not active:
+                # Fase vazia (conjunto pequeno de tools) — avançar sem espera.
+                continue
+
+            if len(active) == 1:
+                tool_name = active[0]
                 _check_cancel(db, job)
                 job.current_tool = tool_name
                 db.commit()
-                adapter = adapters[tool_name]
-                for target in engagement.scope_targets:
-                    assert_in_scope(target, engagement.scope_targets)
-                    result = adapter.run(target, job_dir, engagement.intensity.value)
-                    runs = dict(job.tool_runs or {})
-                    prev = runs.get(tool_name, {})
-                    runs[tool_name] = {
-                        "mocked": bool(prev.get("mocked")) or result.mocked,
-                        "available": adapter.available(),
-                        "last_target": target,
-                        "command": (result.command or [])[:8],
-                        "source": tool_name,
-                    }
-                    job.tool_runs = runs
-                    audit(
-                        db,
-                        engagement.id,
-                        "tool_ran",
-                        {
-                            "job_id": job.id,
-                            "tool": tool_name,
-                            "target": target,
-                            "mocked": result.mocked,
-                            "command": result.command,
-                        },
-                    )
-                    raw_findings.extend(result.findings)
+                result, findings, last_target = _run_adapter_targets(
+                    adapters[tool_name],
+                    list(engagement.scope_targets),
+                    list(engagement.scope_targets),
+                    job_dir,
+                    engagement.intensity.value,
+                )
+                _record_tool_run(
+                    db, job, engagement, tool_name, adapters[tool_name], result, last_target
+                )
+                raw_findings.extend(findings)
                 step += 1
                 job.progress = min(90, int(10 + step / total_steps * 85))
+                job.current_tool = None
+                db.commit()
+            else:
+                # Tools independentes na mesma fase em paralelo (ex.: nmap ∥ sslscan).
+                job.current_tool = "+".join(active)
+                db.commit()
+                workers = min(_PHASE_PARALLEL_WORKERS, len(active))
+                with ThreadPoolExecutor(max_workers=workers) as pool:
+                    futures = {
+                        pool.submit(
+                            _run_adapter_targets,
+                            adapters[tool_name],
+                            list(engagement.scope_targets),
+                            list(engagement.scope_targets),
+                            job_dir,
+                            engagement.intensity.value,
+                        ): tool_name
+                        for tool_name in active
+                    }
+                    for fut in as_completed(futures):
+                        tool_name = futures[fut]
+                        _check_cancel(db, job)
+                        result, findings, last_target = fut.result()
+                        _record_tool_run(
+                            db,
+                            job,
+                            engagement,
+                            tool_name,
+                            adapters[tool_name],
+                            result,
+                            last_target,
+                        )
+                        raw_findings.extend(findings)
+                        step += 1
+                        job.progress = min(90, int(10 + step / total_steps * 85))
+                        job.current_tool = tool_name
+                        db.commit()
+                job.current_tool = None
                 db.commit()
 
         job.current_tool = None
@@ -231,6 +298,46 @@ def run_pipeline(db: Session, job_id: int) -> None:
             "job_failed",
             {"job_id": job_id, "error": str(exc), "trace": traceback.format_exc()[-2000:]},
         )
+
+
+def _record_tool_run(
+    db: Session,
+    job: Job,
+    engagement: Engagement,
+    tool_name: str,
+    adapter,
+    result: AdapterResult | None,
+    last_target: str | None = None,
+) -> None:
+    runs = dict(job.tool_runs or {})
+    prev = runs.get(tool_name, {})
+    if result is None:
+        runs[tool_name] = {
+            "mocked": bool(prev.get("mocked")),
+            "available": adapter.available(),
+            "source": tool_name,
+        }
+    else:
+        runs[tool_name] = {
+            "mocked": bool(prev.get("mocked")) or result.mocked,
+            "available": adapter.available(),
+            "last_target": last_target,
+            "command": (result.command or [])[:8],
+            "source": tool_name,
+        }
+    job.tool_runs = runs
+    audit(
+        db,
+        engagement.id,
+        "tool_ran",
+        {
+            "job_id": job.id,
+            "tool": tool_name,
+            "target": last_target,
+            "mocked": bool(result.mocked) if result else False,
+            "command": (result.command if result else None),
+        },
+    )
 
 
 def _run_f0_gate(

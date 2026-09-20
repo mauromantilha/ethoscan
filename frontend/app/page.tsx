@@ -257,9 +257,11 @@ export default function HomePage() {
         quando as tools não estiverem no PATH.
       </p>
 
-      <section className="panel" style={{ marginBottom: "1.25rem" }}>
-        <h2>Tools · real vs mock</h2>
-        <div className="tool-grid">
+      <details className="panel" style={{ marginBottom: "1.25rem" }}>
+        <summary style={{ cursor: "pointer", color: "var(--accent)", fontWeight: 600 }}>
+          Tools · real vs mock (clique para expandir)
+        </summary>
+        <div className="tool-grid" style={{ marginTop: "0.85rem" }}>
           {toolEntries.length === 0 && <p className="meta">Aguardando /health…</p>}
           {toolEntries.map(([toolName, info]) => (
             <div key={toolName} className="tool-chip">
@@ -271,7 +273,7 @@ export default function HomePage() {
             </div>
           ))}
         </div>
-      </section>
+      </details>
 
       <div className="grid">
         <section className="panel">
@@ -303,35 +305,39 @@ export default function HomePage() {
               </select>
             </div>
             <div className="field">
-              <label>Tools do job</label>
-              <p className="meta">
-                Nenhuma seleção = pipeline clássico. Burp = só GUI; ZAP para scan automatizado.
-                Metasploit = aux/scanner apenas.
-              </p>
-              <div className="tool-grid" style={{ marginTop: "0.5rem" }}>
-                {catalog
-                  .filter((t) => t.runnable || t.id === "burpsuite")
-                  .map((t) => {
-                    const canRun = t.runnable && (t.available || t.will_mock);
-                    return (
-                      <label key={t.id} className="tool-chip" style={{ cursor: canRun ? "pointer" : "default" }}>
-                        <span>
-                          <input
-                            type="checkbox"
-                            disabled={!canRun}
-                            checked={selectedTools.includes(t.id)}
-                            onChange={(e) => toggleTool(t.id, e.target.checked)}
-                          />{" "}
-                          <strong>{t.display_name}</strong>
-                        </span>
-                        <span className={`mode-badge ${t.available ? "real" : t.will_mock ? "mock" : "down"}`}>
-                          {t.status}
-                        </span>
-                        <span className="meta">{t.description}</span>
-                      </label>
-                    );
-                  })}
-              </div>
+              <details>
+                <summary style={{ cursor: "pointer", color: "var(--accent-2)" }}>
+                  Avançado · seleção de tools
+                </summary>
+                <p className="meta" style={{ marginTop: "0.5rem" }}>
+                  Vazio = pipeline clássico. <strong>ZAP</strong> = scan automatizado;{" "}
+                  <strong>Burp</strong> = só GUI. Metasploit = aux/scanner.
+                </p>
+                <div className="tool-grid" style={{ marginTop: "0.5rem" }}>
+                  {catalog
+                    .filter((t) => t.runnable || t.id === "burpsuite")
+                    .map((t) => {
+                      const canRun = t.runnable && (t.available || t.will_mock);
+                      return (
+                        <label key={t.id} className="tool-chip" style={{ cursor: canRun ? "pointer" : "default" }}>
+                          <span>
+                            <input
+                              type="checkbox"
+                              disabled={!canRun}
+                              checked={selectedTools.includes(t.id)}
+                              onChange={(e) => toggleTool(t.id, e.target.checked)}
+                            />{" "}
+                            <strong>{t.display_name}</strong>
+                          </span>
+                          <span className={`mode-badge ${t.available ? "real" : t.will_mock ? "mock" : "down"}`}>
+                            {t.status}
+                          </span>
+                          <span className="meta">{t.description}</span>
+                        </label>
+                      );
+                    })}
+                </div>
+              </details>
             </div>
             <label className="checkbox">
               <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />

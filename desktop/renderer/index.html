@@ -19,15 +19,17 @@
   <body>
     <main class="shell">
       <header class="hero">
-        <h1 class="brand">Ethoscan</h1>
+        <div class="hero-top">
+          <h1 class="brand">Ethoscan</h1>
+          <span class="version-label" id="appVersion">v0.1.3</span>
+        </div>
         <p class="tagline">
-          Shell desktop local. Dispara assessments éticos via a API existente — escopo
-          allowlist, RoE obrigatório, pipeline F0–F6. Intensidade recomendada:
-          <strong>safe</strong>.
+          Assessment ético local — escopo allowlist, RoE e pipeline F0–F6. Intensidade
+          recomendada: <strong>safe</strong>.
         </p>
       </header>
 
-      <aside class="update-banner" id="updateBanner" data-state="idle" aria-live="polite">
+      <aside class="update-banner" id="updateBanner" data-state="idle" hidden aria-live="polite">
         <span class="update-label">Atualização</span>
         <span class="update-text" id="updateStatus">A iniciar…</span>
         <div class="update-actions">
@@ -38,12 +40,12 @@
         </div>
       </aside>
 
+      <div id="toastHost" class="toast-host" aria-live="polite"></div>
+
       <section class="panel config-panel" id="loginPanel">
         <h2>Entrar</h2>
         <p class="meta login-hint">
-          A API local tem de estar a correr (default
-          <code>http://127.0.0.1:8000</code>). Use o utilizador configurado em
-          <code>ETHOSCAN_LOCAL_USERNAME</code> ou a X-API-Key do lab.
+          API local em <code>http://127.0.0.1:8000</code>. Login local ou X-API-Key.
         </p>
         <form id="loginForm">
           <div class="field">
@@ -86,7 +88,7 @@
         <section class="panel session-bar">
           <div class="session-meta">
             <span id="sessionUser">Sessão local</span>
-            <span class="status" id="connectionStatus">A carregar…</span>
+            <span class="status compact" id="connectionStatus">A carregar…</span>
           </div>
           <div class="row">
             <button class="btn secondary" id="btnRefresh" type="button">Atualizar</button>
@@ -94,103 +96,185 @@
           </div>
         </section>
 
-        <section class="panel">
-          <h2>Health · pipeline Ethoscan</h2>
-          <div class="health-meta" id="healthMeta"></div>
-          <div class="tool-grid" id="toolGrid">
-            <p class="meta">Aguardando /health…</p>
-          </div>
-        </section>
+        <nav class="tabs" role="tablist" aria-label="Navegação principal">
+          <button class="tab active" type="button" role="tab" data-tab="dashboard" aria-selected="true">
+            Painel
+          </button>
+          <button class="tab" type="button" role="tab" data-tab="new" aria-selected="false">
+            Novo
+          </button>
+          <button class="tab" type="button" role="tab" data-tab="jobs" aria-selected="false">
+            Jobs
+          </button>
+          <button class="tab" type="button" role="tab" data-tab="history" aria-selected="false">
+            Histórico
+          </button>
+          <button class="tab" type="button" role="tab" data-tab="lab" aria-selected="false">
+            Lab
+          </button>
+        </nav>
 
-        <section class="panel">
-          <h2>Fases F0–F6</h2>
-          <div class="phase-list" id="phaseList">
-            <p class="meta">Aguardando fases…</p>
-          </div>
-        </section>
-
-        <section class="panel">
-          <h2>Inventário Kali / lab</h2>
-          <p class="meta" id="labNote">Disponível / em falta no PATH da API.</p>
-          <div class="tool-grid" id="labGrid">
-            <p class="meta">Aguardando inventário…</p>
-          </div>
-        </section>
-
-        <div class="grid">
-          <section class="panel">
-            <h2>Novo engagement</h2>
-            <form id="createForm">
-              <div class="field">
-                <label for="name">Nome</label>
-                <input id="name" value="Lab local" required minlength="2" />
-              </div>
-              <div class="field">
-                <label for="targets">Alvos (escopo)</label>
-                <textarea
-                  id="targets"
-                  required
-                  placeholder="dominio.com ou IP, um por linha"
-                >scanme.nmap.org</textarea>
-              </div>
-              <div class="field">
-                <label for="intensity">Intensidade (recomendado: safe)</label>
-                <select id="intensity">
-                  <option value="safe" selected>safe — recomendado</option>
-                  <option value="standard">standard — lab próprio / RoE explícito</option>
-                  <option value="aggressive">aggressive — lab controlado apenas</option>
-                </select>
-              </div>
-              <div class="field">
-                <label>Tools do job</label>
-                <p class="meta" id="toolCatalogHint">
-                  Nenhuma seleção = pipeline clássico (nmap, whatweb, gobuster, sslscan, nuclei).
-                  Burp Suite: só GUI; ZAP para scan automatizado. Metasploit: só aux/scanner.
-                </p>
-                <div class="tool-select" id="toolCatalog"></div>
-                <div class="row" style="margin-top: 0.5rem">
-                  <button class="btn secondary" type="button" id="btnLaunchBurp" hidden>
-                    Lançar Burp Suite
-                  </button>
-                </div>
-              </div>
-              <label class="checkbox">
-                <input id="ack" type="checkbox" />
-                <span>
-                  Confirmo autorização/RoE: assessment apenas nos alvos do escopo, em contexto
-                  ético.
-                </span>
-              </label>
-              <div class="row" style="margin-top: 1rem">
-                <button class="btn" type="submit" id="btnCreate">Criar engagement</button>
-              </div>
-            </form>
-            <p class="status" id="formStatus"></p>
-          </section>
-
-          <section class="panel">
-            <h2>Engagements</h2>
-            <div class="list" id="engagementList">
-              <p class="meta">Nenhum engagement ainda.</p>
+        <section class="tab-panel active" data-panel="dashboard">
+          <div class="panel">
+            <h2>Estado da API</h2>
+            <div class="health-meta" id="healthMeta"></div>
+            <p class="meta empty-hint" id="dashboardHint">
+              Crie um engagement ou abra o Histórico para relatórios anteriores.
+            </p>
+            <div class="row" style="margin-top: 0.85rem">
+              <button class="btn" type="button" data-goto="new">Novo engagement</button>
+              <button class="btn secondary" type="button" data-goto="history">Ver histórico</button>
             </div>
-          </section>
-        </div>
-
-        <section class="panel">
-          <h2>Jobs · progresso F0–F6</h2>
-          <div class="list" id="jobList">
-            <p class="meta">Sem jobs.</p>
+          </div>
+          <div class="panel">
+            <h2 id="findingsTitle">Achados recentes</h2>
+            <div class="list" id="findingList">
+              <p class="meta">Sem achados ainda. Corra um job para ver resultados aqui.</p>
+            </div>
           </div>
         </section>
 
-        <section class="panel">
-          <h2 id="findingsTitle">Achados</h2>
-          <div class="list" id="findingList">
-            <p class="meta">Sem achados ainda.</p>
+        <section class="tab-panel" data-panel="new" hidden>
+          <div class="grid">
+            <div class="panel">
+              <h2>Novo engagement</h2>
+              <form id="createForm">
+                <div class="field">
+                  <label for="name">Nome</label>
+                  <input id="name" value="Lab local" required minlength="2" />
+                </div>
+                <div class="field">
+                  <label for="targets">Alvos (escopo)</label>
+                  <textarea
+                    id="targets"
+                    required
+                    placeholder="dominio.com ou IP, um por linha"
+                  >scanme.nmap.org</textarea>
+                </div>
+                <div class="field">
+                  <label for="intensity">Intensidade</label>
+                  <select id="intensity">
+                    <option value="safe" selected>safe — recomendado</option>
+                    <option value="standard">standard — lab próprio / RoE explícito</option>
+                    <option value="aggressive">aggressive — lab controlado apenas</option>
+                  </select>
+                </div>
+                <details class="advanced tools-advanced">
+                  <summary>Avançado · seleção de tools</summary>
+                  <p class="meta" id="toolCatalogHint" style="margin-top: 0.65rem">
+                    Vazio = pipeline clássico (nmap, whatweb, gobuster, sslscan, nuclei).
+                    <strong>ZAP</strong> = scan automatizado; <strong>Burp</strong> = só GUI.
+                  </p>
+                  <div class="tool-select" id="toolCatalog"></div>
+                  <div class="row" style="margin-top: 0.5rem">
+                    <button class="btn secondary" type="button" id="btnLaunchBurp" hidden>
+                      Lançar Burp Suite (GUI)
+                    </button>
+                  </div>
+                </details>
+                <label class="checkbox">
+                  <input id="ack" type="checkbox" />
+                  <span>
+                    Confirmo autorização/RoE: assessment apenas nos alvos do escopo, em contexto
+                    ético.
+                  </span>
+                </label>
+                <div class="row" style="margin-top: 1rem">
+                  <button class="btn" type="submit" id="btnCreate">Criar engagement</button>
+                </div>
+              </form>
+              <p class="status" id="formStatus"></p>
+            </div>
+
+            <div class="panel">
+              <h2>Engagements</h2>
+              <div class="list" id="engagementList">
+                <p class="meta">Nenhum engagement ainda. Crie o primeiro à esquerda.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="tab-panel" data-panel="jobs" hidden>
+          <div class="panel">
+            <h2>Jobs ativos</h2>
+            <div class="list" id="jobList">
+              <p class="meta">Sem jobs. Inicie um pipeline a partir de um engagement.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="tab-panel" data-panel="history" hidden>
+          <div class="panel">
+            <h2>Histórico</h2>
+            <p class="meta">Engagements e jobs anteriores — abra ou descarregue relatórios.</p>
+            <div class="list" id="historyList">
+              <p class="meta">Sem histórico ainda.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="tab-panel" data-panel="lab" hidden>
+          <div class="panel">
+            <h2>Tools no PATH</h2>
+            <div class="tool-grid" id="toolGrid">
+              <p class="meta">Aguardando /health…</p>
+            </div>
+          </div>
+          <div class="panel">
+            <h2>Fases F0–F6</h2>
+            <div class="phase-list" id="phaseList">
+              <p class="meta">Aguardando fases…</p>
+            </div>
+          </div>
+          <div class="panel">
+            <h2>Inventário Kali</h2>
+            <p class="meta" id="labNote">Disponível / em falta no PATH da API.</p>
+            <div class="tool-grid" id="labGrid">
+              <p class="meta">Aguardando inventário…</p>
+            </div>
+          </div>
+          <div class="panel updater-panel">
+            <h2>Atualizador</h2>
+            <p class="meta" id="updaterMeta">Verifique atualizações do Desktop.</p>
+            <div class="row">
+              <button class="btn secondary" type="button" id="btnCheckUpdateLab">
+                Verificar atualização
+              </button>
+            </div>
           </div>
         </section>
       </div>
     </main>
+
+    <dialog class="progress-dialog" id="progressDialog" aria-labelledby="progressTitle">
+      <form method="dialog" class="progress-inner">
+        <header class="progress-header">
+          <h2 id="progressTitle">Progresso do job</h2>
+          <button class="btn secondary btn-icon" type="button" id="btnDismissProgress" value="cancel">
+            Fechar
+          </button>
+        </header>
+        <p class="meta" id="progressJobMeta">Job #—</p>
+        <div class="progress-bar-wrap" aria-hidden="true">
+          <div class="progress-bar" id="progressBar" style="width: 0%"></div>
+        </div>
+        <p class="progress-pct" id="progressPct">0%</p>
+        <div class="phase-track" id="progressPhases"></div>
+        <p class="meta" id="progressTool">Aguardando worker…</p>
+        <p class="meta" id="progressEta"></p>
+        <p class="status" id="progressError" hidden></p>
+        <div class="row progress-actions">
+          <button class="btn secondary" type="button" id="btnCopyJobId">Copiar ID</button>
+          <button class="btn secondary" type="button" id="btnCancelProgress">Cancelar job</button>
+          <button class="btn" type="button" id="btnOpenReport" hidden>Abrir relatório HTML</button>
+          <button class="btn secondary" type="button" id="btnOpenReportPdf" hidden>
+            Abrir PDF
+          </button>
+        </div>
+      </form>
+    </dialog>
+
     <script src="app.js"></script>
   </body>
 </html>

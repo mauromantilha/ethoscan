@@ -312,6 +312,18 @@ ipcMain.handle("api:listJobs", async (_event, engagementId) => {
   return apiFetch(`/api/jobs${q}`);
 });
 
+ipcMain.handle("api:getJob", async (_event, jobId) => apiFetch(`/api/jobs/${jobId}`));
+
+ipcMain.handle("api:listHistory", async (_event, filters = {}) => {
+  const params = new URLSearchParams();
+  if (filters.engagementId != null) params.set("engagement_id", String(filters.engagementId));
+  if (filters.limit != null) params.set("limit", String(filters.limit));
+  const q = params.toString() ? `?${params}` : "";
+  return apiFetch(`/api/history${q}`);
+});
+
+ipcMain.handle("app:getVersion", () => app.getVersion());
+
 ipcMain.handle("api:cancelJob", async (_event, jobId) =>
   apiFetch(`/api/jobs/${jobId}/cancel`, { method: "POST" }),
 );

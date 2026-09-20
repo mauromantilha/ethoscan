@@ -40,7 +40,12 @@ class ZapAdapter(BaseAdapter):
             str(out_html),
             "-quickprogress",
         ]
-        timeout = 300 if intensity == "safe" else 600
+        if intensity == "safe":
+            timeout = 180
+        elif intensity == "standard":
+            timeout = 360
+        else:
+            timeout = 600
         stdout, stderr, _ = self._exec(cmd, timeout=timeout)
         content = out_html.read_text(errors="ignore") if out_html.exists() else stdout
         summary = job_dir / "zap.txt"

@@ -13,18 +13,19 @@ class NmapAdapter(BaseAdapter):
     binary = "nmap"
 
     def _run_real(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
-        out_file = job_dir / "nmap.json"
         if intensity == "safe":
-            args = ["-Pn", "-sV", "--top-ports", "100", "-T3"]
+            # top-ports 50 + T4: cobertura útil sem o custo de 100 ports em T3.
+            args = ["-Pn", "-sV", "--top-ports", "50", "-T4", "--max-retries", "1"]
+            timeout = 120
         elif intensity == "standard":
-            args = ["-Pn", "-sV", "-sC", "--top-ports", "1000", "-T4"]
+            args = ["-Pn", "-sV", "-sC", "--top-ports", "200", "-T4", "--max-retries", "2"]
+            timeout = 240
         else:
             args = ["-Pn", "-sV", "-sC", "-p-", "-T4"]
+            timeout = 300
 
-        cmd = ["nmap", *args, "-oX", str(out_file.with_suffix(".xml")), target]
-        # Prefer grepable-ish summary via normal output as well
         cmd_text = ["nmap", *args, target]
-        stdout, stderr, _ = self._exec(cmd_text, timeout=300)
+        stdout, stderr, _ = self._exec(cmd_text, timeout=timeout)
         findings = self._parse_text(stdout, target)
         (job_dir / "nmap.txt").write_text(stdout)
         return AdapterResult(

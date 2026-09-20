@@ -13,7 +13,12 @@ class NiktoAdapter(BaseAdapter):
     def _run_real(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
         host = target if "://" in target else f"http://{target}"
         out_file = job_dir / "nikto.txt"
-        maxtime = "120s" if intensity == "safe" else ("300s" if intensity == "standard" else "600s")
+        if intensity == "safe":
+            maxtime, timeout = "60s", 90
+        elif intensity == "standard":
+            maxtime, timeout = "180s", 240
+        else:
+            maxtime, timeout = "600s", 700
         cmd = [
             "nikto",
             "-h",
@@ -24,8 +29,9 @@ class NiktoAdapter(BaseAdapter):
             "txt",
             "-output",
             str(out_file),
+            "-nointeractive",
         ]
-        stdout, stderr, _ = self._exec(cmd, timeout=700)
+        stdout, stderr, _ = self._exec(cmd, timeout=timeout)
         content = out_file.read_text() if out_file.exists() else stdout
         if not out_file.exists() and content:
             out_file.write_text(content)
