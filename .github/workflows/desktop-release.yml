@@ -101,6 +101,8 @@ jobs:
             - **Linux:** AppImage e/ou `.deb`
             - **Windows:** instalador NSIS (`.exe`) e/ou portable
 
+            Auto-update (electron-updater) aplica-se sobretudo ao **NSIS** instalado; portable não atualiza in-place de forma fiável. A primeira instalação de cada major/minor base pode ser manual; versões seguintes atualizam quando online.
+
             Ver `desktop/README.md` para build local e configuração (`X-API-Key`, URL da API).
           files: |
             dist-artifacts/**

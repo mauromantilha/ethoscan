@@ -18,4 +18,11 @@ contextBridge.exposeInMainWorld("ethoscan", {
   downloadReport: (jobId) => ipcRenderer.invoke("api:downloadReport", jobId),
   downloadReportPdf: (jobId) => ipcRenderer.invoke("api:downloadReportPdf", jobId),
   openPath: (targetPath) => ipcRenderer.invoke("shell:openPath", targetPath),
+  checkForUpdates: () => ipcRenderer.invoke("updater:check"),
+  installUpdate: () => ipcRenderer.invoke("updater:install"),
+  onUpdaterStatus: (callback) => {
+    const handler = (_event, payload) => callback(payload);
+    ipcRenderer.on("updater:status", handler);
+    return () => ipcRenderer.removeListener("updater:status", handler);
+  },
 });

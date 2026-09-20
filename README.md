@@ -128,7 +128,7 @@ npm run dist:linux   # → desktop/release/*.AppImage, *.deb
 npm run dist:win     # → desktop/release/*.exe (preferir Windows / CI)
 ```
 
-**GitHub Release:** push de uma tag `v*` (ex. `v0.1.0`) dispara [`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml), que constrói Linux + Windows e anexa os artefactos ao release. Detalhes em [desktop/README.md](desktop/README.md).
+**GitHub Release:** push de uma tag `v*` (ex. `v0.1.2`) dispara [`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml), que constrói Linux + Windows e anexa os artefactos ao release. A app empacotada (NSIS / AppImage) verifica atualizações nos Releases via electron-updater — ver [desktop/README.md](desktop/README.md).
 ### Com Docker
 
 ```bash
