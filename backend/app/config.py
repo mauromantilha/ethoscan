@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     # Auth — ver README "Segurança do próprio Ethoscan"
     ethoscan_api_key: str = ""
     ethoscan_disable_auth: bool = False
+    # Utilizador local (desktop/lab) — password apenas como hash bcrypt
+    ethoscan_local_username: str = ""
+    ethoscan_local_password_hash: str = ""
+    # TTL dos tokens de sessão emitidos por POST /api/auth/login (horas)
+    ethoscan_session_ttl_hours: int = 12
 
     # CORS — origem da UI (não usar *)
     ethoscan_cors_origins: str = "http://localhost:3000"
@@ -44,10 +49,18 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.ethoscan_cors_origins.split(",") if o.strip()]
 
     @property
+    def local_user_configured(self) -> bool:
+        return bool(
+            self.ethoscan_local_username.strip()
+            and self.ethoscan_local_password_hash.strip()
+        )
+
+    @property
     def auth_enabled(self) -> bool:
+        """Auth obrigatória se houver API key ou utilizador local (salvo DISABLE_AUTH)."""
         if self.ethoscan_disable_auth:
             return False
-        return bool(self.ethoscan_api_key.strip())
+        return bool(self.ethoscan_api_key.strip()) or self.local_user_configured
 
 
 @lru_cache

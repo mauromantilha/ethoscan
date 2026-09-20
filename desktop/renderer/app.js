@@ -1,12 +1,26 @@
 const PHASE_ORDER = ["F0", "F1", "F2", "F3", "F4", "F5", "F6"];
 
 const el = {
+  loginPanel: document.getElementById("loginPanel"),
+  appPanels: document.getElementById("appPanels"),
+  loginForm: document.getElementById("loginForm"),
+  loginStatus: document.getElementById("loginStatus"),
   apiBaseUrl: document.getElementById("apiBaseUrl"),
+  username: document.getElementById("username"),
+  password: document.getElementById("password"),
   apiKey: document.getElementById("apiKey"),
+  btnLogin: document.getElementById("btnLogin"),
+  btnSkipAuth: document.getElementById("btnSkipAuth"),
+  btnLogout: document.getElementById("btnLogout"),
+  btnRefresh: document.getElementById("btnRefresh"),
+  sessionUser: document.getElementById("sessionUser"),
   connectionStatus: document.getElementById("connectionStatus"),
   formStatus: document.getElementById("formStatus"),
   healthMeta: document.getElementById("healthMeta"),
   toolGrid: document.getElementById("toolGrid"),
+  phaseList: document.getElementById("phaseList"),
+  labNote: document.getElementById("labNote"),
+  labGrid: document.getElementById("labGrid"),
   engagementList: document.getElementById("engagementList"),
   jobList: document.getElementById("jobList"),
   findingList: document.getElementById("findingList"),
@@ -17,16 +31,16 @@ const el = {
   intensity: document.getElementById("intensity"),
   ack: document.getElementById("ack"),
   btnCreate: document.getElementById("btnCreate"),
-  btnSaveConfig: document.getElementById("btnSaveConfig"),
-  btnRefresh: document.getElementById("btnRefresh"),
 };
 
 let selectedEngagement = null;
 let busy = false;
+let pollTimer = null;
 
 function setBusy(value) {
   busy = value;
   el.btnCreate.disabled = value;
+  el.btnLogin.disabled = value;
   document.querySelectorAll("[data-action]").forEach((btn) => {
     btn.disabled = value;
   });
@@ -40,22 +54,38 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;");
 }
 
-async function loadConfig() {
-  const config = await window.ethoscan.getConfig();
-  el.apiBaseUrl.value = config.apiBaseUrl || "http://127.0.0.1:8000";
-  el.apiKey.value = config.apiKey || "";
+function showLogin() {
+  el.loginPanel.hidden = false;
+  el.appPanels.hidden = true;
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
 }
 
-async function saveConfig() {
-  await window.ethoscan.setConfig({
-    apiBaseUrl: el.apiBaseUrl.value.trim() || "http://127.0.0.1:8000",
-    apiKey: el.apiKey.value.trim(),
-  });
-  el.connectionStatus.textContent = "Configuração guardada.";
-  await refresh();
+function showApp(config) {
+  el.loginPanel.hidden = true;
+  el.appPanels.hidden = false;
+  const who = config.username ? `Sessão: ${config.username}` : "Sessão local";
+  el.sessionUser.textContent = who;
+  if (!pollTimer) {
+    pollTimer = setInterval(() => {
+      refresh().catch(() => {});
+    }, 3000);
+  }
+}
+
+async function loadConfigIntoForm() {
+  const config = await window.ethoscan.getConfig();
+  el.apiBaseUrl.value = config.apiBaseUrl || "http://127.0.0.1:8000";
+  el.username.value = config.username || "";
+  el.apiKey.value = "";
+  el.password.value = "";
+  return config;
 }
 
 function renderHealth(health) {
+  lastHealth = health;
   if (!health) {
     el.healthMeta.textContent = "Sem dados de health.";
     el.toolGrid.innerHTML = `<p class="meta">Aguardando /health…</p>`;
@@ -66,6 +96,7 @@ function renderHealth(health) {
     `estado: ${health.status}`,
     `modo: ${health.mode}`,
     `auth: ${health.auth_enabled ? "on" : "off"}`,
+    `login local: ${health.local_login_available ? "sim" : "não"}`,
     `redis: ${health.redis_ok ? "ok" : "down"}`,
     `mock: ${health.mock_allowed ? "permitido" : "off"}`,
   ].join(" · ");
@@ -84,6 +115,51 @@ function renderHealth(health) {
         <strong>${escapeHtml(name)}</strong>
         <span class="mode-badge ${badge}">${mode}</span>
         <span class="meta">${escapeHtml(info.binary || "")}</span>
+      </div>`;
+    })
+    .join("");
+
+  renderPhases(health.phases || {});
+}
+
+function renderPhases(phases) {
+  const entries = PHASE_ORDER.map((id) => [id, phases[id] || ""]).filter(([, label]) => label);
+  if (!entries.length) {
+    el.phaseList.innerHTML = `<p class="meta">Sem fases reportadas.</p>`;
+    return;
+  }
+  el.phaseList.innerHTML = entries
+    .map(
+      ([id, label]) =>
+        `<div class="phase-row"><span class="phase-id">${escapeHtml(id)}</span>` +
+        `<span>${escapeHtml(label)}</span></div>`,
+    )
+    .join("");
+}
+
+function renderLabInventory(inventory) {
+  if (!inventory) {
+    el.labGrid.innerHTML = `<p class="meta">Inventário indisponível (auth ou API).</p>`;
+    return;
+  }
+  el.labNote.textContent =
+    inventory.note || "Disponível / em falta no PATH da API (sem executar scans).";
+  if (inventory.phases) renderPhases(inventory.phases);
+
+  const tools = inventory.tools || [];
+  if (!tools.length) {
+    el.labGrid.innerHTML = `<p class="meta">Sem tools no inventário.</p>`;
+    return;
+  }
+
+  el.labGrid.innerHTML = tools
+    .map((t) => {
+      const badge = t.available ? "real" : "down";
+      const mode = t.available ? "disponível" : "em falta";
+      return `<div class="tool-chip">
+        <strong>${escapeHtml(t.name)}</strong>
+        <span class="mode-badge ${badge}">${mode}</span>
+        <span class="meta">${escapeHtml(t.binary || "")}</span>
       </div>`;
     })
     .join("");
@@ -196,6 +272,14 @@ async function refresh() {
     const health = await window.ethoscan.health();
     renderHealth(health);
 
+    let inventory = null;
+    try {
+      inventory = await window.ethoscan.labTools();
+    } catch {
+      inventory = null;
+    }
+    renderLabInventory(inventory);
+
     const [engagements, jobs, findings] = await Promise.all([
       window.ethoscan.listEngagements(),
       window.ethoscan.listJobs(),
@@ -214,13 +298,126 @@ async function refresh() {
   } catch (err) {
     el.connectionStatus.textContent = `API indisponível — ${err.message || err}`;
     renderHealth(null);
+    renderLabInventory(null);
+    if (err.status === 401) {
+      await window.ethoscan.logout();
+      showLogin();
+      el.loginStatus.textContent = "Sessão expirada ou inválida — entre novamente.";
+    }
   }
 }
 
-el.btnSaveConfig.addEventListener("click", () => {
-  saveConfig().catch((err) => {
-    el.connectionStatus.textContent = String(err.message || err);
-  });
+async function probeLoginGate() {
+  const config = await loadConfigIntoForm();
+  let health = null;
+  try {
+    // health é público — usa fetch via IPC que inclui apiKey se existir
+    health = await window.ethoscan.health();
+    el.loginStatus.textContent = health.local_login_available
+      ? "API ok — entre com utilizador/palavra-passe local."
+      : health.auth_enabled
+        ? "API ok — auth ativa (X-API-Key ou login local se configurado)."
+        : "API ok — auth desligada (lab). Pode continuar sem login.";
+    el.btnSkipAuth.hidden = Boolean(health.auth_enabled);
+  } catch (err) {
+    el.loginStatus.textContent = `API indisponível — ${err.message || err}`;
+    el.btnSkipAuth.hidden = true;
+    showLogin();
+    return;
+  }
+
+  const hasSession = Boolean(config.apiKey);
+  if (hasSession) {
+    try {
+      await window.ethoscan.listEngagements();
+      showApp(config);
+      await refresh();
+      return;
+    } catch (err) {
+      if (err.status === 401) {
+        await window.ethoscan.logout();
+        el.loginStatus.textContent = "Sessão inválida — entre novamente.";
+      }
+    }
+  }
+
+  if (!health.auth_enabled && !hasSession) {
+    // Lab aberto: entrar direto na app
+    showApp(config);
+    await refresh();
+    return;
+  }
+
+  showLogin();
+}
+
+el.loginForm.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  setBusy(true);
+  el.loginStatus.textContent = "A autenticar…";
+  try {
+    const base = el.apiBaseUrl.value.trim() || "http://127.0.0.1:8000";
+    const user = el.username.value.trim();
+    const pass = el.password.value;
+    const key = el.apiKey.value.trim();
+
+    if (user && pass) {
+      const config = await window.ethoscan.login({
+        apiBaseUrl: base,
+        username: user,
+        password: pass,
+      });
+      el.password.value = "";
+      showApp(config);
+      await refresh();
+      return;
+    }
+
+    if (key) {
+      const config = await window.ethoscan.setConfig({
+        apiBaseUrl: base,
+        apiKey: key,
+        username: user || "",
+      });
+      el.apiKey.value = "";
+      await window.ethoscan.listEngagements();
+      showApp(config);
+      await refresh();
+      return;
+    }
+
+    el.loginStatus.textContent =
+      "Indique utilizador + palavra-passe, ou uma X-API-Key no painel avançado.";
+  } catch (err) {
+    el.loginStatus.textContent = String(err.message || err);
+  } finally {
+    setBusy(false);
+  }
+});
+
+el.btnSkipAuth.addEventListener("click", async () => {
+  setBusy(true);
+  try {
+    const config = await window.ethoscan.setConfig({
+      apiBaseUrl: el.apiBaseUrl.value.trim() || "http://127.0.0.1:8000",
+      apiKey: "",
+      username: "",
+    });
+    showApp(config);
+    await refresh();
+  } catch (err) {
+    el.loginStatus.textContent = String(err.message || err);
+  } finally {
+    setBusy(false);
+  }
+});
+
+el.btnLogout.addEventListener("click", async () => {
+  await window.ethoscan.logout();
+  await loadConfigIntoForm();
+  showLogin();
+  el.loginStatus.textContent = "Sessão terminada.";
+  probeLoginGate().catch(() => {});
 });
 
 el.btnRefresh.addEventListener("click", () => {
@@ -297,9 +494,5 @@ document.body.addEventListener("click", async (ev) => {
 });
 
 (async function boot() {
-  await loadConfig();
-  await refresh();
-  setInterval(() => {
-    refresh().catch(() => {});
-  }, 3000);
+  await probeLoginGate();
 })();

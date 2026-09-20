@@ -104,7 +104,7 @@ npm install
 npm start
 ```
 
-Na UI desktop: URL base (default `http://127.0.0.1:8000`) e `X-API-Key` opcional (mesma key que `ETHOSCAN_API_KEY`). As chamadas saem do processo principal do Electron (sem alterar CORS da API).
+Na UI desktop: ecrã de **login** (utilizador + palavra-passe + URL base, default `http://127.0.0.1:8000`) quando o login local ou a API key estiverem configurados. Alternativa avançada: `X-API-Key`. As chamadas saem do processo principal do Electron (sem alterar CORS da API). A API tem de estar a correr antes de abrir o desktop.
 
 #### Empacotar / releases
 
@@ -172,6 +172,9 @@ Ver [docs/kali-acceptance.md](docs/kali-acceptance.md).
 **Default seguro**
 
 - Defina `ETHOSCAN_API_KEY` (header `X-API-Key` na API; CLI via env; UI via `NEXT_PUBLIC_API_KEY`)
+- Opcional (desktop/lab): `ETHOSCAN_LOCAL_USERNAME` + `ETHOSCAN_LOCAL_PASSWORD_HASH` (bcrypt).
+  Login: `POST /api/auth/login` → token de sessão para usar como `X-API-Key` (não devolve a master key).
+  Gerar hash: `python3 -c "import bcrypt; print(bcrypt.hashpw(b'YOUR_PASSWORD', bcrypt.gensalt()).decode())"`
 - CORS apenas para `ETHOSCAN_CORS_ORIGINS` (default `http://localhost:3000`) — **não** usa `*`
 - Bind diário: `127.0.0.1`
 
@@ -181,7 +184,15 @@ Ver [docs/kali-acceptance.md](docs/kali-acceptance.md).
 ETHOSCAN_DISABLE_AUTH=true
 ```
 
-Só é aceitável em lab isolado. Sem key e sem `DISABLE_AUTH` em `mode=local`, a API arranca mas regista aviso. Fora de `local`, falta de key é erro de configuração.
+Só é aceitável em lab isolado. Sem key/utilizador local e sem `DISABLE_AUTH` em `mode=local`, a API arranca mas regista aviso. Fora de `local`, falta de auth é erro de configuração.
+
+**Smoke desktop (login local)**
+
+1. Defina `ETHOSCAN_LOCAL_USERNAME=mauro` e `ETHOSCAN_LOCAL_PASSWORD_HASH` (hash bcrypt; ver `.env.example`)
+2. `ETHOSCAN_DISABLE_AUTH=false` (e opcionalmente uma `ETHOSCAN_API_KEY` para CLI)
+3. Suba Redis + API + worker
+4. `cd desktop && npm start` → entre com utilizador/palavra-passe
+5. Confirme pipeline tools, inventário Kali (`/api/lab/tools`) e fases F0–F6; crie um engagement com RoE
 
 **Checklist — não publicar casualmente na LAN**
 

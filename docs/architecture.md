@@ -96,9 +96,11 @@ frontend/app/page.tsx        UI única (sem componentes separados) — fetch dir
 backend/cli.py                cliente alternativo (Typer), fala com a mesma API
 
 backend/app/main.py           monta o FastAPI app, CORS, GET /health (sem auth)
+backend/app/api/auth_routes.py POST /api/auth/login|logout (público; sessão local)
 backend/app/api/routes.py     rotas /api/* (auth via X-API-Key) — CRUD fino, sem lógica de negócio
-backend/app/core/security.py  dependency require_api_key
+backend/app/core/security.py  require_api_key (API key ou token de sessão); bcrypt local user
 backend/app/core/authz.py     validação de escopo/RoE (usado em routes.py E dentro do pipeline)
+backend/app/lab_inventory.py  inventário Kali/lab (PATH only) → GET /api/lab/tools
 
 backend/app/queue.py          wrapper Redis: enqueue_job / pop_job / cancel flags
 backend/app/worker.py         processo separado: loop pop_job -> run_pipeline
@@ -115,6 +117,7 @@ backend/app/db.py             engine/session SQLAlchemy, init_db()
 backend/app/models.py         Engagement 1→N Job 1→N Finding, + AuditEvent
 backend/app/schemas.py        Pydantic (request/response da API)
 backend/app/config.py         Settings (env vars), get_settings() cacheado
+desktop/main.js               Electron: login → sessão (token) + fetch IPC para a API
 ```
 
 ## Onde procurar quando algo quebra

@@ -27,92 +27,145 @@
         </p>
       </header>
 
-      <section class="panel config-panel">
-        <h2>Ligação à API</h2>
-        <div class="grid-2">
+      <section class="panel config-panel" id="loginPanel">
+        <h2>Entrar</h2>
+        <p class="meta login-hint">
+          A API local tem de estar a correr (default
+          <code>http://127.0.0.1:8000</code>). Use o utilizador configurado em
+          <code>ETHOSCAN_LOCAL_USERNAME</code> ou a X-API-Key do lab.
+        </p>
+        <form id="loginForm">
           <div class="field">
             <label for="apiBaseUrl">URL base da API</label>
-            <input id="apiBaseUrl" type="url" spellcheck="false" />
+            <input id="apiBaseUrl" type="url" spellcheck="false" required />
           </div>
-          <div class="field">
-            <label for="apiKey">X-API-Key (opcional)</label>
-            <input id="apiKey" type="password" autocomplete="off" spellcheck="false" />
+          <div class="grid-2">
+            <div class="field">
+              <label for="username">Utilizador</label>
+              <input id="username" type="text" autocomplete="username" spellcheck="false" />
+            </div>
+            <div class="field">
+              <label for="password">Palavra-passe</label>
+              <input
+                id="password"
+                type="password"
+                autocomplete="current-password"
+                spellcheck="false"
+              />
+            </div>
           </div>
-        </div>
-        <div class="row">
-          <button class="btn" id="btnSaveConfig" type="button">Guardar</button>
-          <button class="btn secondary" id="btnRefresh" type="button">Atualizar</button>
-        </div>
-        <p class="status" id="connectionStatus">A carregar…</p>
+          <details class="advanced">
+            <summary>Avançado · X-API-Key</summary>
+            <div class="field" style="margin-top: 0.75rem">
+              <label for="apiKey">X-API-Key (alternativa ao login)</label>
+              <input id="apiKey" type="password" autocomplete="off" spellcheck="false" />
+            </div>
+          </details>
+          <div class="row" style="margin-top: 1rem">
+            <button class="btn" id="btnLogin" type="submit">Entrar</button>
+            <button class="btn secondary" id="btnSkipAuth" type="button" hidden>
+              Continuar sem auth
+            </button>
+          </div>
+        </form>
+        <p class="status" id="loginStatus">A contactar a API…</p>
       </section>
 
-      <section class="panel">
-        <h2>Health · tools</h2>
-        <div class="health-meta" id="healthMeta"></div>
-        <div class="tool-grid" id="toolGrid">
-          <p class="meta">Aguardando /health…</p>
-        </div>
-      </section>
-
-      <div class="grid">
-        <section class="panel">
-          <h2>Novo engagement</h2>
-          <form id="createForm">
-            <div class="field">
-              <label for="name">Nome</label>
-              <input id="name" value="Lab local" required minlength="2" />
-            </div>
-            <div class="field">
-              <label for="targets">Alvos (escopo)</label>
-              <textarea
-                id="targets"
-                required
-                placeholder="dominio.com ou IP, um por linha"
-              >scanme.nmap.org</textarea>
-            </div>
-            <div class="field">
-              <label for="intensity">Intensidade (recomendado: safe)</label>
-              <select id="intensity">
-                <option value="safe" selected>safe — recomendado</option>
-                <option value="standard">standard — lab próprio / RoE explícito</option>
-                <option value="aggressive">aggressive — lab controlado apenas</option>
-              </select>
-            </div>
-            <label class="checkbox">
-              <input id="ack" type="checkbox" />
-              <span>
-                Confirmo autorização/RoE: assessment apenas nos alvos do escopo, em contexto
-                ético.
-              </span>
-            </label>
-            <div class="row" style="margin-top: 1rem">
-              <button class="btn" type="submit" id="btnCreate">Criar engagement</button>
-            </div>
-          </form>
-          <p class="status" id="formStatus"></p>
+      <div id="appPanels" hidden>
+        <section class="panel session-bar">
+          <div class="session-meta">
+            <span id="sessionUser">Sessão local</span>
+            <span class="status" id="connectionStatus">A carregar…</span>
+          </div>
+          <div class="row">
+            <button class="btn secondary" id="btnRefresh" type="button">Atualizar</button>
+            <button class="btn secondary" id="btnLogout" type="button">Sair</button>
+          </div>
         </section>
 
         <section class="panel">
-          <h2>Engagements</h2>
-          <div class="list" id="engagementList">
-            <p class="meta">Nenhum engagement ainda.</p>
+          <h2>Health · pipeline Ethoscan</h2>
+          <div class="health-meta" id="healthMeta"></div>
+          <div class="tool-grid" id="toolGrid">
+            <p class="meta">Aguardando /health…</p>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Fases F0–F6</h2>
+          <div class="phase-list" id="phaseList">
+            <p class="meta">Aguardando fases…</p>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Inventário Kali / lab</h2>
+          <p class="meta" id="labNote">Disponível / em falta no PATH da API.</p>
+          <div class="tool-grid" id="labGrid">
+            <p class="meta">Aguardando inventário…</p>
+          </div>
+        </section>
+
+        <div class="grid">
+          <section class="panel">
+            <h2>Novo engagement</h2>
+            <form id="createForm">
+              <div class="field">
+                <label for="name">Nome</label>
+                <input id="name" value="Lab local" required minlength="2" />
+              </div>
+              <div class="field">
+                <label for="targets">Alvos (escopo)</label>
+                <textarea
+                  id="targets"
+                  required
+                  placeholder="dominio.com ou IP, um por linha"
+                >scanme.nmap.org</textarea>
+              </div>
+              <div class="field">
+                <label for="intensity">Intensidade (recomendado: safe)</label>
+                <select id="intensity">
+                  <option value="safe" selected>safe — recomendado</option>
+                  <option value="standard">standard — lab próprio / RoE explícito</option>
+                  <option value="aggressive">aggressive — lab controlado apenas</option>
+                </select>
+              </div>
+              <label class="checkbox">
+                <input id="ack" type="checkbox" />
+                <span>
+                  Confirmo autorização/RoE: assessment apenas nos alvos do escopo, em contexto
+                  ético.
+                </span>
+              </label>
+              <div class="row" style="margin-top: 1rem">
+                <button class="btn" type="submit" id="btnCreate">Criar engagement</button>
+              </div>
+            </form>
+            <p class="status" id="formStatus"></p>
+          </section>
+
+          <section class="panel">
+            <h2>Engagements</h2>
+            <div class="list" id="engagementList">
+              <p class="meta">Nenhum engagement ainda.</p>
+            </div>
+          </section>
+        </div>
+
+        <section class="panel">
+          <h2>Jobs · progresso F0–F6</h2>
+          <div class="list" id="jobList">
+            <p class="meta">Sem jobs.</p>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2 id="findingsTitle">Achados</h2>
+          <div class="list" id="findingList">
+            <p class="meta">Sem achados ainda.</p>
           </div>
         </section>
       </div>
-
-      <section class="panel">
-        <h2>Jobs · progresso F0–F6</h2>
-        <div class="list" id="jobList">
-          <p class="meta">Sem jobs.</p>
-        </div>
-      </section>
-
-      <section class="panel">
-        <h2 id="findingsTitle">Achados</h2>
-        <div class="list" id="findingList">
-          <p class="meta">Sem achados ainda.</p>
-        </div>
-      </section>
     </main>
     <script src="app.js"></script>
   </body>

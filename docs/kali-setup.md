@@ -49,6 +49,7 @@ command -v nmap whatweb gobuster sslscan nuclei
 - [ ] Worker: `python -m app.worker`
 - [ ] `curl -s http://127.0.0.1:8000/health | jq .tools` → todos `available: true`
 - [ ] `python cli.py health` → mesma matriz
+- [ ] (opcional) `GET /api/lab/tools` → inventário Kali alargado (`available` por binário) + fases F0–F6
 
 ## Política mock vs real
 
@@ -58,4 +59,4 @@ command -v nmap whatweb gobuster sslscan nuclei
 | Tool em falta + `ETHOSCAN_ALLOW_MOCK=true` | **Mock**; findings/jobs marcados `mocked=true` / mode `mock` |
 | Tool em falta + `ETHOSCAN_ALLOW_MOCK=false` | **Falha** no gate F0 (ou na execução da tool) |
 
-O `/health` expõe por tool: `available`, `will_mock`, `mode`. A UI mostra badges real/mock.
+O `/health` expõe as 5 tools do pipeline: `available`, `will_mock`, `mode`. O inventário alargado (masscan, nikto, netexec, etc.) está em `GET /api/lab/tools` (existência no PATH apenas — sem executar scans). A UI desktop mostra ambos + fases F0–F6.

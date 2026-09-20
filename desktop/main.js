@@ -5,6 +5,7 @@ const path = require("path");
 const DEFAULT_CONFIG = {
   apiBaseUrl: "http://127.0.0.1:8000",
   apiKey: "",
+  username: "",
 };
 
 function configPath() {
@@ -24,10 +25,20 @@ function writeConfig(next) {
   const merged = {
     apiBaseUrl: String(next.apiBaseUrl || DEFAULT_CONFIG.apiBaseUrl).replace(/\/$/, ""),
     apiKey: String(next.apiKey || ""),
+    username: String(next.username || ""),
   };
   fs.mkdirSync(path.dirname(configPath()), { recursive: true });
   fs.writeFileSync(configPath(), JSON.stringify(merged, null, 2), "utf8");
   return merged;
+}
+
+function clearSession() {
+  const config = readConfig();
+  return writeConfig({
+    apiBaseUrl: config.apiBaseUrl,
+    apiKey: "",
+    username: "",
+  });
 }
 
 function buildHeaders(config, json = false) {
@@ -72,6 +83,36 @@ async function apiFetch(pathname, options = {}) {
   return data;
 }
 
+async function login({ apiBaseUrl, username, password }) {
+  const base = String(apiBaseUrl || DEFAULT_CONFIG.apiBaseUrl).replace(/\/$/, "");
+  let res;
+  try {
+    res = await fetch(`${base}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+  } catch (err) {
+    throw new Error(
+      `Não foi possível contactar ${base} (${err.cause?.code || err.message}). ` +
+        "Confirme que a API está a correr.",
+    );
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail =
+      typeof data === "object" && data !== null
+        ? data.detail || JSON.stringify(data)
+        : String(data);
+    throw new Error(detail || `HTTP ${res.status}`);
+  }
+  return writeConfig({
+    apiBaseUrl: base,
+    apiKey: data.token,
+    username: data.username || username,
+  });
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1180,
@@ -106,7 +147,23 @@ ipcMain.handle("config:get", () => readConfig());
 
 ipcMain.handle("config:set", (_event, next) => writeConfig(next || {}));
 
+ipcMain.handle("auth:login", async (_event, payload) => login(payload || {}));
+
+ipcMain.handle("auth:logout", async () => {
+  const config = readConfig();
+  if (config.apiKey) {
+    try {
+      await apiFetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      // limpa sessão local mesmo se a API estiver offline
+    }
+  }
+  return clearSession();
+});
+
 ipcMain.handle("api:health", async () => apiFetch("/health"));
+
+ipcMain.handle("api:labTools", async () => apiFetch("/api/lab/tools"));
 
 ipcMain.handle("api:listEngagements", async () => apiFetch("/api/engagements"));
 
