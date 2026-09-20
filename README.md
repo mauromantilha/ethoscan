@@ -106,6 +106,18 @@ npm start
 
 Na UI desktop: URL base (default `http://127.0.0.1:8000`) e `X-API-Key` opcional (mesma key que `ETHOSCAN_API_KEY`). As chamadas saem do processo principal do Electron (sem alterar CORS da API).
 
+#### Empacotar / releases
+
+Instaladores via [electron-builder](https://www.electron.build/) (`AppImage` + `.deb` no Linux; portable + NSIS no Windows):
+
+```bash
+cd desktop
+npm install
+npm run dist:linux   # → desktop/release/*.AppImage, *.deb
+npm run dist:win     # → desktop/release/*.exe (preferir Windows / CI)
+```
+
+**GitHub Release:** push de uma tag `v*` (ex. `v0.1.0`) dispara [`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml), que constrói Linux + Windows e anexa os artefactos ao release. Detalhes em [desktop/README.md](desktop/README.md).
 ### Com Docker
 
 ```bash

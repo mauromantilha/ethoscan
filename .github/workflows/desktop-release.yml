@@ -1,0 +1,109 @@
+name: desktop-release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            dist_script: dist:linux
+          - os: windows-latest
+            platform: win
+            dist_script: dist:win
+
+    defaults:
+      run:
+        working-directory: desktop
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build installers
+        run: npm run ${{ matrix.dist_script }}
+        env:
+          # Avoid electron-builder trying to publish; we upload via softprops below.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ethoscan-desktop-${{ matrix.platform }}
+          path: |
+            desktop/release/*.AppImage
+            desktop/release/*.deb
+            desktop/release/*.exe
+            desktop/release/*.yml
+            desktop/release/*.yaml
+            desktop/release/*.blockmap
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-artifacts
+          merge-multiple: true
+
+      - name: List release files
+        run: find dist-artifacts -type f | sort
+
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Ethoscan Desktop ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          body: |
+            ## Ethoscan Desktop ${{ github.ref_name }}
+
+            Cliente **Electron** instalável para disparar assessments éticos via a API Ethoscan local.
+
+            ### Pré-requisitos
+            - API FastAPI + Redis + worker já a correr (tipicamente `http://127.0.0.1:8000`)
+            - Uso **apenas** em alvos autorizados / lab próprio
+            - Esta app **não** inclui scanners — é um client fino da API existente
+
+            ### Artefactos
+            - **Linux:** AppImage e/ou `.deb`
+            - **Windows:** instalador NSIS (`.exe`) e/ou portable
+
+            Ver `desktop/README.md` para build local e configuração (`X-API-Key`, URL da API).
+          files: |
+            dist-artifacts/**
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

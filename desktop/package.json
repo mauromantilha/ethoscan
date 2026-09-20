@@ -3,15 +3,76 @@
   "version": "0.1.0",
   "private": true,
   "description": "Shell Electron local para o Ethoscan — dispara pentests éticos via API existente",
+  "author": "Ethoscan <ethoscan@users.noreply.github.com>",
+  "license": "MIT",
+  "homepage": "https://github.com/mauromantilha/ethoscan",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mauromantilha/ethoscan.git",
+    "directory": "desktop"
+  },
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "electron ."
+    "dev": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --publish never",
+    "dist:linux": "electron-builder --linux AppImage deb --publish never",
+    "dist:win": "electron-builder --win portable nsis --publish never"
   },
   "engines": {
     "node": ">=18"
   },
+  "build": {
+    "appId": "com.ethoscan.desktop",
+    "productName": "Ethoscan",
+    "copyright": "Copyright © Ethoscan",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "extraMetadata": {
+      "main": "main.js"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Network",
+      "maintainer": "Ethoscan <ethoscan@users.noreply.github.com>",
+      "synopsis": "Cliente Electron para a API Ethoscan (pentest ético local)",
+      "description": "Shell desktop que chama a API Ethoscan local. Requer API + Redis + worker; não inclui scanners.",
+      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+    },
+    "deb": {
+      "depends": []
+    },
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Ethoscan"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-${os}-${arch}-portable.${ext}"
+    }
+  },
   "devDependencies": {
-    "electron": "^35.0.0"
+    "electron": "^35.0.0",
+    "electron-builder": "^25.1.8"
   }
 }
