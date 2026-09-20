@@ -279,17 +279,30 @@ def list_tool_catalog() -> ToolCatalogOut:
 
 @router.post("/tools/burpsuite/launch", response_model=LaunchToolResponse)
 def launch_burpsuite() -> LaunchToolResponse:
-    """Lança Burp Suite GUI se estiver no PATH — não corre scan automatizado."""
-    binary = find_launch_binary("burpsuite")
+    """Compat: lança Burp Suite GUI."""
+    return _launch_gui_tool("burpsuite")
+
+
+@router.post("/tools/{tool_id}/launch", response_model=LaunchToolResponse)
+def launch_tool(tool_id: str) -> LaunchToolResponse:
+    """Lança tool GUI (burpsuite, wireshark, fern) se estiver no PATH — sem scan automatizado."""
+    return _launch_gui_tool(tool_id.strip().lower())
+
+
+def _launch_gui_tool(tool_id: str) -> LaunchToolResponse:
+    binary = find_launch_binary(tool_id)
+    labels = {
+        "burpsuite": "Burp Suite",
+        "wireshark": "Wireshark",
+        "fern-wifi-cracker": "Fern WiFi Cracker",
+    }
+    label = labels.get(tool_id, tool_id)
     if not binary:
         return LaunchToolResponse(
-            tool="burpsuite",
+            tool=tool_id,
             launched=False,
             binary=None,
-            message=(
-                "Burp Suite não encontrado no PATH. "
-                "Instale a Community Edition ou use OWASP ZAP para scan headless."
-            ),
+            message=f"{label} não encontrado no PATH ou não é launchable.",
         )
     try:
         subprocess.Popen(  # noqa: S603
@@ -299,15 +312,15 @@ def launch_burpsuite() -> LaunchToolResponse:
             start_new_session=True,
         )
     except OSError as exc:
-        raise HTTPException(500, f"Falha ao lançar Burp: {exc}") from exc
+        raise HTTPException(500, f"Falha ao lançar {label}: {exc}") from exc
+    extra = ""
+    if tool_id == "burpsuite":
+        extra = " Community Edition não tem adapter headless — use ZAP no pipeline."
     return LaunchToolResponse(
-        tool="burpsuite",
+        tool=tool_id,
         launched=True,
         binary=binary,
-        message=(
-            "Burp Suite lançado (GUI). Community Edition não tem adapter headless — "
-            "para relatório automatizado use a tool ZAP no pipeline."
-        ),
+        message=f"{label} lançado (GUI).{extra}",
     )
 
 

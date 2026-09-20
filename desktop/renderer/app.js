@@ -261,16 +261,39 @@ function renderPhases(phases) {
     .join("");
 }
 
-function renderLabInventory(inventory) {
-  if (!inventory) {
+function renderLabInventory(inventory, catalog) {
+  if (!inventory && !catalog) {
     el.labGrid.innerHTML = `<p class="meta">Inventário indisponível (auth ou API).</p>`;
     return;
   }
   el.labNote.textContent =
-    inventory.note || "Disponível / em falta no PATH da API (sem executar scans).";
-  if (inventory.phases) renderPhases(inventory.phases);
+    (catalog && catalog.note) ||
+    (inventory && inventory.note) ||
+    "Instalado ≠ executável. Badges: Executável / Só GUI / Inventário / Não instalado.";
+  if (inventory && inventory.phases) renderPhases(inventory.phases);
 
-  const tools = inventory.tools || [];
+  // Preferir catálogo completo (21+) com papéis; fallback ao inventário PATH.
+  const fromCatalog = (catalog && catalog.tools) || [];
+  if (fromCatalog.length) {
+    el.labGrid.innerHTML = fromCatalog
+      .map((t) => {
+        const role = t.role || (t.runnable ? "executável" : t.launchable ? "só GUI" : "inventário");
+        const badge = !t.available ? "down" : t.runnable ? "real" : t.launchable ? "mock" : "inv";
+        const avail = t.available ? "disponível" : "não instalado";
+        return `<div class="tool-chip">
+          <strong>${escapeHtml(t.display_name || t.id)}</strong>
+          <span class="mode-badge ${t.available ? "real" : "down"}">${avail}</span>
+          <span class="mode-badge ${badge}">${escapeHtml(role)}</span>
+          <span class="meta">${escapeHtml(t.binary || "")}${
+            t.ethics_note ? ` — ${escapeHtml(t.ethics_note)}` : ""
+          }</span>
+        </div>`;
+      })
+      .join("");
+    return;
+  }
+
+  const tools = (inventory && inventory.tools) || [];
   if (!tools.length) {
     el.labGrid.innerHTML = `<p class="meta">Sem tools no inventário.</p>`;
     return;
@@ -295,15 +318,15 @@ function renderToolCatalog(catalog) {
   if (catalog.default_pipeline?.length) {
     defaultPipeline = catalog.default_pipeline;
   }
-  if (catalog.note && el.toolCatalogHint) {
+  if (el.toolCatalogHint) {
     el.toolCatalogHint.innerHTML =
-      "Vazio = pipeline clássico. <strong>ZAP</strong> = scan automatizado no pipeline; " +
-      "<strong>Burp</strong> = só lançamento GUI. Metasploit = aux/scanner apenas.";
+      "Vazio = pipeline clássico. Badges: <strong>executável</strong> (selecionável), " +
+      "<strong>só GUI</strong>, <strong>inventário</strong> (visível mas não corre no job). " +
+      "Instalado ≠ executável. Sem exploits Metasploit / RF automatizado.";
   }
 
-  const tools = (catalog.tools || []).filter(
-    (t) => t.runnable || t.launchable || ["burpsuite", "metasploit", "zap"].includes(t.id),
-  );
+  // Mostrar TODAS as tools — não esconder inventário/instaladas.
+  const tools = catalog.tools || [];
   if (!tools.length) {
     el.toolCatalog.innerHTML = `<p class="meta">Catálogo indisponível.</p>`;
     return;
@@ -313,31 +336,34 @@ function renderToolCatalog(catalog) {
   el.toolCatalog.innerHTML = tools
     .map((t) => {
       const canRun = Boolean(t.runnable) && (Boolean(t.available) || Boolean(t.will_mock));
-      const disabled = !canRun && t.id !== "burpsuite";
+      const isGui = Boolean(t.launchable) && !t.runnable;
+      const disabled = !canRun;
       const checked = prev.has(t.id);
-      const status = escapeHtml(t.status || "");
-      const burpNote =
-        t.id === "burpsuite"
-          ? " — GUI apenas (não entra no pipeline)"
-          : t.id === "zap"
-            ? " — scan automatizado + relatório"
-            : "";
+      const status = escapeHtml(t.status || t.role || "");
+      const badgeClass = !t.available && !t.will_mock
+        ? "down"
+        : t.runnable
+          ? "real"
+          : t.launchable
+            ? "mock"
+            : "inv";
       return `<label class="tool-select-item">
         <input type="checkbox" data-tool-id="${escapeHtml(t.id)}" ${
-          disabled || t.id === "burpsuite" ? "disabled" : ""
+          disabled ? "disabled" : ""
         } ${!disabled && checked ? "checked" : ""} />
         <span>
           <strong>${escapeHtml(t.display_name || t.id)}</strong>
-          <span class="mode-badge ${t.available ? "real" : t.will_mock ? "mock" : "down"}">${status}</span>
+          <span class="mode-badge ${badgeClass}">${status}</span>
+          ${t.available ? '<span class="mode-badge real">disponível</span>' : ""}
         </span>
-        <span class="meta">${escapeHtml(t.description || "")}${burpNote}${
-          t.ethics_note && t.id !== "burpsuite" ? ` — ${escapeHtml(t.ethics_note)}` : ""
-        }</span>
+        <span class="meta">${escapeHtml(t.description || "")}${
+          isGui ? " — lançamento GUI" : ""
+        }${t.ethics_note ? ` — ${escapeHtml(t.ethics_note)}` : ""}</span>
       </label>`;
     })
     .join("");
 
-  const burp = (catalog.tools || []).find((t) => t.id === "burpsuite");
+  const burp = tools.find((t) => t.id === "burpsuite");
   if (el.btnLaunchBurp) {
     el.btnLaunchBurp.hidden = !(burp && burp.available && burp.launchable);
   }
@@ -603,19 +629,19 @@ async function refresh() {
     renderHealth(health);
 
     let inventory = null;
+    let catalog = null;
     try {
       inventory = await window.ethoscan.labTools();
     } catch {
       inventory = null;
     }
-    renderLabInventory(inventory);
-
     try {
-      const catalog = await window.ethoscan.toolCatalog();
+      catalog = await window.ethoscan.toolCatalog();
       renderToolCatalog(catalog);
     } catch {
       renderToolCatalog(null);
     }
+    renderLabInventory(inventory, catalog);
 
     const [engagements, jobs, findings, history] = await Promise.all([
       window.ethoscan.listEngagements(),

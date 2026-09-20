@@ -387,11 +387,16 @@ textarea {
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
 }
 
+.mode-badge.inv {
+  color: var(--muted);
+  border-color: color-mix(in srgb, var(--muted) 45%, transparent);
+}
+
 .tool-select {
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
-  max-height: 200px;
+  max-height: 320px;
   overflow: auto;
   padding: 0.55rem 0.65rem;
   border: 1px solid var(--line);

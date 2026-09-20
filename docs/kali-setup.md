@@ -18,18 +18,35 @@ Checklist para um host **Kali Linux** stock com packages instalados, de forma a 
 |------|---------|----------------|----------|
 | Nikto | `nikto` | `nikto` | Adapter runnable (maxtime limitado) |
 | Masscan | `masscan` | `masscan` | Rate baixo + portas top |
+| Unicornscan | `unicornscan` | `unicornscan` | Enum de portas (como masscan) |
 | OWASP ZAP | `zap.sh` / `zap` | `zaproxy` | Scan headless + relatório (alternativa ao Burp) |
 | Metasploit | `msfconsole` | `metasploit-framework` | **Só** `auxiliary/scanner` — sem exploits |
-| Burp Suite | `burpsuite` | instalador PortSwigger | Detecção PATH + **lançamento GUI** apenas |
+| sqlmap | `sqlmap` | `sqlmap` | Defaults seguros; URL allowlisted |
+| Hydra | `hydra` | `hydra` | standard+; wordlist curta; host allowlisted |
+| John | `john` | `john` | Offline; só com `hashes.txt` nos artefactos |
+| NetExec (CME) | `nxc` / `netexec` / `crackmapexec` | `netexec` | Enum SMB apenas |
+| BloodHound.py | `bloodhound-python` | `bloodhound.py` | standard+; creds em `ad_creds.env` |
+| Burp Suite | `burpsuite` | instalador PortSwigger | **Só GUI** |
+| Wireshark | `wireshark` | `wireshark` | **Só GUI** |
+| Fern | `fern-wifi-cracker` | `fern-wifi-cracker` | **Só GUI** (sem RF automatizado) |
+
+### Inventário apenas (visível, não selecionável em jobs)
+
+`tcpdump`, `netcat`, `aircrack-ng`, `kismet`, `wifite`, `bettercap`, `arpwatch`, `setoolkit` —
+aparecem no catálogo com badge **inventário** (ética/RF/utils). Ethoscan **não** automatiza
+ataques RF nem campanhas SET.
 
 ```bash
-# Opcionais
-sudo apt install -y nikto masscan zaproxy metasploit-framework
+# Opcionais (exemplos)
+sudo apt install -y nikto masscan unicornscan zaproxy metasploit-framework \
+  sqlmap hydra john netexec wireshark tcpdump aircrack-ng
 # Burp CE: instalar à parte e garantir `burpsuite` no PATH
 ```
 
-> **Ética:** Ethoscan não automatiza exploits Metasploit nem ataques RF (wifite permanece inventário).
-> Use apenas em lab/projetos autorizados com RoE.
+> **Ética:** Ethoscan não automatiza exploits Metasploit nem ataques RF (wifite/kismet/aircrack
+> permanecem inventário). SET = inventário. RoE + allowlist F0 inalterados.
+> **Instalado ≠ executável:** o Desktop lista todas as tools com badges
+> Disponível / Executável / Só GUI / Inventário.
 
 ### Wordlists (Gobuster)
 
