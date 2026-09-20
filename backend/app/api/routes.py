@@ -1,15 +1,17 @@
+import subprocess
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
+from app.adapters import tools_status
 from app.core.authz import assert_roe, validate_scope
 from app.core.orchestrator import PHASE_LABELS, audit
+from app.core.reports import write_pdf_report
 from app.core.security import require_api_key
 from app.db import get_db
 from app.lab_inventory import lab_tools_inventory
-from app.adapters import tools_status
 from app.models import Engagement, Finding, Job, JobStatus
 from app.queue import enqueue_job, ping_redis, request_cancel
 from app.schemas import (
@@ -17,8 +19,17 @@ from app.schemas import (
     EngagementOut,
     FindingOut,
     JobOut,
+    JobStartRequest,
     JobStartResponse,
     LabInventoryOut,
+    LaunchToolResponse,
+    ToolCatalogOut,
+)
+from app.tool_catalog import (
+    DEFAULT_PIPELINE_TOOLS,
+    find_launch_binary,
+    tool_catalog,
+    validate_selected_tools,
 )
 
 router = APIRouter(prefix="/api", dependencies=[Depends(require_api_key)])
@@ -32,6 +43,10 @@ def list_engagements(db: Session = Depends(get_db)) -> list[Engagement]:
 @router.post("/engagements", response_model=EngagementOut)
 def create_engagement(payload: EngagementCreate, db: Session = Depends(get_db)) -> Engagement:
     scope = validate_scope(payload.scope_targets)
+    try:
+        selected = validate_selected_tools(payload.selected_tools)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     eng = Engagement(
         name=payload.name,
         scope_targets=scope,
@@ -40,11 +55,17 @@ def create_engagement(payload: EngagementCreate, db: Session = Depends(get_db)) 
         roe_text=payload.roe_text
         or "Autorizo o assessment apenas nos alvos listados no escopo, em modo ético.",
         notes=payload.notes,
+        selected_tools=selected,
     )
     db.add(eng)
     db.commit()
     db.refresh(eng)
-    audit(db, eng.id, "engagement_created", {"name": eng.name, "scope": eng.scope_targets})
+    audit(
+        db,
+        eng.id,
+        "engagement_created",
+        {"name": eng.name, "scope": eng.scope_targets, "selected_tools": selected},
+    )
     return eng
 
 
@@ -57,7 +78,11 @@ def get_engagement(engagement_id: int, db: Session = Depends(get_db)) -> Engagem
 
 
 @router.post("/engagements/{engagement_id}/jobs", response_model=JobStartResponse)
-def start_job(engagement_id: int, db: Session = Depends(get_db)) -> JobStartResponse:
+def start_job(
+    engagement_id: int,
+    payload: JobStartRequest | None = None,
+    db: Session = Depends(get_db),
+) -> JobStartResponse:
     eng = db.get(Engagement, engagement_id)
     if not eng:
         raise HTTPException(404, "Engagement não encontrado")
@@ -70,17 +95,32 @@ def start_job(engagement_id: int, db: Session = Depends(get_db)) -> JobStartResp
             "Suba o Redis e o worker (`python -m app.worker`).",
         )
 
+    body = payload or JobStartRequest()
+    try:
+        if body.selected_tools is not None:
+            selected = validate_selected_tools(body.selected_tools)
+        else:
+            selected = list(eng.selected_tools or [])
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
     job = Job(
         engagement_id=eng.id,
         status=JobStatus.pending,
         phase="F0",
         progress=0,
         tool_runs={},
+        selected_tools=selected,
     )
     db.add(job)
     db.commit()
     db.refresh(job)
-    audit(db, eng.id, "job_queued", {"job_id": job.id})
+    audit(
+        db,
+        eng.id,
+        "job_queued",
+        {"job_id": job.id, "selected_tools": selected},
+    )
     try:
         enqueue_job(job.id)
     except Exception as exc:  # noqa: BLE001
@@ -88,10 +128,12 @@ def start_job(engagement_id: int, db: Session = Depends(get_db)) -> JobStartResp
         job.error = f"Falha ao enfileirar no Redis: {exc}"
         db.commit()
         raise HTTPException(503, job.error) from exc
-    return JobStartResponse(
-        job=job,
-        message="Pipeline enfileirado no worker (F0 gate → F1–F6)",
+    msg = (
+        "Pipeline enfileirado no worker (F0 gate → F1–F6)"
+        if not selected
+        else f"Pipeline enfileirado com tools: {', '.join(selected)}"
     )
+    return JobStartResponse(job=job, message=msg)
 
 
 @router.get("/jobs", response_model=list[JobOut])
@@ -148,9 +190,87 @@ def download_report(job_id: int, db: Session = Depends(get_db)) -> FileResponse:
     )
 
 
+@router.get("/jobs/{job_id}/report.pdf")
+def download_report_pdf(job_id: int, db: Session = Depends(get_db)) -> Response:
+    job = db.get(Job, job_id)
+    if not job:
+        raise HTTPException(404, "Job não encontrado")
+    if job.status != JobStatus.completed:
+        raise HTTPException(404, "Relatório PDF ainda não disponível")
+
+    pdf_path = Path(job.report_pdf_path) if job.report_pdf_path else None
+    if pdf_path and pdf_path.is_file():
+        return FileResponse(
+            pdf_path,
+            media_type="application/pdf",
+            filename=pdf_path.name,
+        )
+
+    # Regenerar a partir dos findings se o ficheiro em falta.
+    eng = db.get(Engagement, job.engagement_id)
+    if not eng:
+        raise HTTPException(404, "Engagement não encontrado")
+    findings = (
+        db.query(Finding).filter(Finding.job_id == job.id).order_by(Finding.id.asc()).all()
+    )
+    out_dir = Path(job.report_path).parent if job.report_path else Path("/tmp")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    pdf_path = write_pdf_report(eng, job, findings, out_dir)
+    job.report_pdf_path = str(pdf_path)
+    db.commit()
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        filename=pdf_path.name,
+    )
+
+
 @router.get("/phases")
 def list_phases() -> dict[str, str]:
     return PHASE_LABELS
+
+
+@router.get("/tools", response_model=ToolCatalogOut)
+def list_tool_catalog() -> ToolCatalogOut:
+    """Catálogo runnable + inventário (disponível / runnable / lançamento GUI)."""
+    return ToolCatalogOut(
+        tools=tool_catalog(),
+        default_pipeline=list(DEFAULT_PIPELINE_TOOLS),
+    )
+
+
+@router.post("/tools/burpsuite/launch", response_model=LaunchToolResponse)
+def launch_burpsuite() -> LaunchToolResponse:
+    """Lança Burp Suite GUI se estiver no PATH — não corre scan automatizado."""
+    binary = find_launch_binary("burpsuite")
+    if not binary:
+        return LaunchToolResponse(
+            tool="burpsuite",
+            launched=False,
+            binary=None,
+            message=(
+                "Burp Suite não encontrado no PATH. "
+                "Instale a Community Edition ou use OWASP ZAP para scan headless."
+            ),
+        )
+    try:
+        subprocess.Popen(  # noqa: S603
+            [binary],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        raise HTTPException(500, f"Falha ao lançar Burp: {exc}") from exc
+    return LaunchToolResponse(
+        tool="burpsuite",
+        launched=True,
+        binary=binary,
+        message=(
+            "Burp Suite lançado (GUI). Community Edition não tem adapter headless — "
+            "para relatório automatizado use a tool ZAP no pipeline."
+        ),
+    )
 
 
 @router.get("/lab/tools", response_model=LabInventoryOut)

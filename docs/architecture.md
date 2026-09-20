@@ -19,7 +19,7 @@ flowchart LR
     api -->|read/write| pg[(Postgres/SQLite)]
     worker["worker (loop contínuo)\nbackend/app/worker.py"] -->|BRPOP job_id| redis
     worker -->|read/write| pg
-    worker -->|executa binários| tools["nmap / whatweb / gobuster\nsslscan / nuclei"]
+    worker -->|executa binários| tools["nmap / whatweb / gobuster\nsslscan / nuclei (+ nikto/masscan/zap/msf-aux)"]
 ```
 
 **Ponto que mais confunde:** a API **nunca executa scans**. `POST /api/engagements/{id}/jobs`
@@ -61,14 +61,16 @@ sequenceDiagram
         end
         O->>O: F5: correlator.correlate() (dedup + severidade)
         O->>DB: F6: INSERT Finding(s)
-        O->>O: reports.write_html_report()
-        O->>DB: UPDATE Job(status=completed, report_path)
+        O->>O: reports.write_html_report() + write_pdf_report()
+        O->>DB: UPDATE Job(status=completed, report_path, report_pdf_path)
     end
 
     UI->>API: GET /api/jobs (polling)
-    API-->>UI: progress, phase, current_tool, tool_runs
+    API-->>UI: progress, phase, current_tool, tool_runs, selected_tools
     UI->>API: GET /api/jobs/{id}/report
     API-->>UI: FileResponse (HTML)
+    UI->>API: GET /api/jobs/{id}/report.pdf
+    API-->>UI: FileResponse (PDF)
 ```
 
 ## Fases do pipeline (F0–F6)

@@ -12,6 +12,25 @@ Checklist para um host **Kali Linux** stock com packages instalados, de forma a 
 | sslscan | `sslscan` | `sslscan` | TLS/SSL |
 | Nuclei | `nuclei` | `nuclei` (ou binário ProjectDiscovery) | Templates de vuln |
 
+## Tools opcionais (catálogo selecionável)
+
+| Tool | Binário | Pacote / notas | Ethoscan |
+|------|---------|----------------|----------|
+| Nikto | `nikto` | `nikto` | Adapter runnable (maxtime limitado) |
+| Masscan | `masscan` | `masscan` | Rate baixo + portas top |
+| OWASP ZAP | `zap.sh` / `zap` | `zaproxy` | Scan headless + relatório (alternativa ao Burp) |
+| Metasploit | `msfconsole` | `metasploit-framework` | **Só** `auxiliary/scanner` — sem exploits |
+| Burp Suite | `burpsuite` | instalador PortSwigger | Detecção PATH + **lançamento GUI** apenas |
+
+```bash
+# Opcionais
+sudo apt install -y nikto masscan zaproxy metasploit-framework
+# Burp CE: instalar à parte e garantir `burpsuite` no PATH
+```
+
+> **Ética:** Ethoscan não automatiza exploits Metasploit nem ataques RF (wifite permanece inventário).
+> Use apenas em lab/projetos autorizados com RoE.
+
 ### Wordlists (Gobuster)
 
 Gobuster, no adapter atual, usa por omissão:

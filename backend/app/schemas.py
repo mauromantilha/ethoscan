@@ -13,6 +13,7 @@ class EngagementCreate(BaseModel):
     roe_acknowledged: bool = False
     roe_text: str | None = None
     notes: str | None = None
+    selected_tools: list[str] = Field(default_factory=list)
 
     @field_validator("scope_targets")
     @classmethod
@@ -21,6 +22,11 @@ class EngagementCreate(BaseModel):
         if not cleaned:
             raise ValueError("Informe ao menos um alvo no escopo")
         return cleaned
+
+    @field_validator("selected_tools")
+    @classmethod
+    def clean_tools(cls, value: list[str]) -> list[str]:
+        return [t.strip().lower() for t in (value or []) if t and t.strip()]
 
 
 class EngagementOut(BaseModel):
@@ -31,9 +37,28 @@ class EngagementOut(BaseModel):
     roe_acknowledged: bool
     roe_text: str | None
     notes: str | None
+    selected_tools: list[str] = Field(default_factory=list)
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_validator("selected_tools", mode="before")
+    @classmethod
+    def coerce_selected(cls, value: list[str] | None) -> list[str]:
+        return list(value or [])
+
+
+class JobStartRequest(BaseModel):
+    """Body opcional ao iniciar job — sobrescreve selected_tools do engagement."""
+
+    selected_tools: list[str] | None = None
+
+    @field_validator("selected_tools")
+    @classmethod
+    def clean_tools(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        return [t.strip().lower() for t in value if t and t.strip()]
 
 
 class JobOut(BaseModel):
@@ -45,12 +70,19 @@ class JobOut(BaseModel):
     progress: int
     error: str | None
     report_path: str | None
+    report_pdf_path: str | None = None
+    selected_tools: list[str] = Field(default_factory=list)
     tool_runs: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
 
     model_config = {"from_attributes": True}
+
+    @field_validator("selected_tools", mode="before")
+    @classmethod
+    def coerce_selected(cls, value: list[str] | None) -> list[str]:
+        return list(value or [])
 
 
 class FindingOut(BaseModel):
@@ -117,3 +149,38 @@ class LabInventoryOut(BaseModel):
     note: str = (
         "Inventário por existência no PATH deste processo — não executa scans."
     )
+
+
+class ToolCatalogEntryOut(BaseModel):
+    id: str
+    display_name: str
+    category: str
+    phase: str | None = None
+    binary: str
+    available: bool
+    runnable: bool
+    launchable: bool = False
+    intensity_min: str = "safe"
+    description: str
+    default_args_hint: str = ""
+    ethics_note: str | None = None
+    will_mock: bool = False
+    mode: str = "unavailable"
+    status: str
+
+
+class ToolCatalogOut(BaseModel):
+    tools: list[ToolCatalogEntryOut]
+    default_pipeline: list[str]
+    note: str = (
+        "Selecione tools runnable para o job. Lista vazia = pipeline clássico F1–F4. "
+        "Burp Suite: só lançamento GUI; use ZAP para scan automatizado. "
+        "Metasploit: apenas auxiliary/scanner. Wireless permanece inventário."
+    )
+
+
+class LaunchToolResponse(BaseModel):
+    tool: str
+    launched: bool
+    binary: str | None = None
+    message: str

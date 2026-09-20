@@ -5,22 +5,24 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from app.adapters import REQUIRED_TOOLS, all_adapters, tools_status
+from app.adapters import all_adapters, tools_status
 from app.config import get_settings
 from app.core.authz import assert_in_scope, assert_roe
 from app.core.correlator import correlate
-from app.core.reports import write_html_report
+from app.core.reports import write_html_report, write_pdf_report
 from app.models import AuditEvent, Engagement, Finding, Job, JobStatus
 from app.queue import clear_cancel, is_cancel_requested
+from app.tool_catalog import DEFAULT_PIPELINE_TOOLS, resolve_selected_tools
 
 
 # F0 = gate explícito (RoE + escopo + tools). F1–F6 = execução.
+# Tools opcionais (nikto, masscan, zap, metasploit) só correm se selected_tools as incluir.
 PHASES = [
     ("F0", "gate", []),
     ("F1", "recon", ["whatweb"]),
-    ("F2", "enum", ["nmap", "sslscan"]),
-    ("F3", "web-discovery", ["gobuster"]),
-    ("F4", "vuln", ["nuclei"]),
+    ("F2", "enum", ["nmap", "sslscan", "masscan", "metasploit"]),
+    ("F3", "web-discovery", ["gobuster", "zap"]),
+    ("F4", "vuln", ["nuclei", "nikto"]),
     ("F5", "correlate", []),
     ("F6", "report", []),
 ]
@@ -28,9 +30,9 @@ PHASES = [
 PHASE_LABELS = {
     "F0": "Gate (RoE, escopo, tools)",
     "F1": "Recon (WhatWeb)",
-    "F2": "Enum (Nmap, sslscan)",
-    "F3": "Web discovery (Gobuster)",
-    "F4": "Vuln (Nuclei)",
+    "F2": "Enum (Nmap, sslscan, masscan, msf-aux)",
+    "F3": "Web discovery (Gobuster, ZAP)",
+    "F4": "Vuln (Nuclei, Nikto)",
     "F5": "Correlação",
     "F6": "Relatório",
 }
@@ -73,6 +75,11 @@ def _mark_cancelled(db: Session, job: Job, engagement: Engagement | None) -> Non
     )
 
 
+def _job_selected_tools(job: Job) -> list[str]:
+    stored = list(job.selected_tools or [])
+    return resolve_selected_tools(stored if stored else None)
+
+
 def run_pipeline(db: Session, job_id: int) -> None:
     settings = get_settings()
     job = db.get(Job, job_id)
@@ -87,15 +94,22 @@ def run_pipeline(db: Session, job_id: int) -> None:
         return
 
     try:
+        selected = _job_selected_tools(job)
+        job.selected_tools = selected
         job.status = JobStatus.running
         job.started_at = datetime.now(timezone.utc)
         job.phase = "F0"
         job.progress = 2
         job.tool_runs = dict(job.tool_runs or {})
         db.commit()
-        audit(db, engagement.id, "job_started", {"job_id": job.id})
+        audit(
+            db,
+            engagement.id,
+            "job_started",
+            {"job_id": job.id, "selected_tools": selected},
+        )
 
-        _run_f0_gate(db, job, engagement)
+        _run_f0_gate(db, job, engagement, selected)
         _check_cancel(db, job)
 
         job_dir = settings.artifacts_path / f"engagement-{engagement.id}" / f"job-{job.id}"
@@ -103,8 +117,15 @@ def run_pipeline(db: Session, job_id: int) -> None:
 
         adapters = {a.name: a for a in all_adapters()}
         raw_findings = []
-        tool_steps = sum(len(tools) for phase, _, tools in PHASES if phase != "F0" and tools)
-        total_steps = tool_steps + 2
+        selected_set = set(selected)
+        tool_steps = sum(
+            1
+            for phase, _, tools in PHASES
+            if phase not in {"F0", "F5", "F6"}
+            for t in tools
+            if t in selected_set
+        )
+        total_steps = max(tool_steps, 1) + 2
         step = 0
 
         for phase, _label, tools in PHASES:
@@ -131,7 +152,9 @@ def run_pipeline(db: Session, job_id: int) -> None:
                     .all()
                 )
                 report = write_html_report(engagement, job, findings, job_dir)
+                pdf = write_pdf_report(engagement, job, findings, job_dir)
                 job.report_path = str(report)
+                job.report_pdf_path = str(pdf)
                 step += 1
                 job.progress = 100
                 job.phase = "F6"
@@ -144,11 +167,19 @@ def run_pipeline(db: Session, job_id: int) -> None:
                     db,
                     engagement.id,
                     "job_completed",
-                    {"job_id": job.id, "findings": len(findings), "report": str(report)},
+                    {
+                        "job_id": job.id,
+                        "findings": len(findings),
+                        "report": str(report),
+                        "report_pdf": str(pdf),
+                        "selected_tools": selected,
+                    },
                 )
                 continue
 
             for tool_name in tools:
+                if tool_name not in selected_set:
+                    continue
                 _check_cancel(db, job)
                 job.current_tool = tool_name
                 db.commit()
@@ -163,6 +194,7 @@ def run_pipeline(db: Session, job_id: int) -> None:
                         "available": adapter.available(),
                         "last_target": target,
                         "command": (result.command or [])[:8],
+                        "source": tool_name,
                     }
                     job.tool_runs = runs
                     audit(
@@ -201,8 +233,13 @@ def run_pipeline(db: Session, job_id: int) -> None:
         )
 
 
-def _run_f0_gate(db: Session, job: Job, engagement: Engagement) -> None:
-    """Gate F0: RoE, escopo e disponibilidade de tools (política de mock)."""
+def _run_f0_gate(
+    db: Session,
+    job: Job,
+    engagement: Engagement,
+    selected: list[str],
+) -> None:
+    """Gate F0: RoE, escopo e disponibilidade das tools selecionadas."""
     settings = get_settings()
     job.phase = "F0"
     job.current_tool = "gate"
@@ -213,8 +250,9 @@ def _run_f0_gate(db: Session, job: Job, engagement: Engagement) -> None:
     for target in engagement.scope_targets:
         assert_in_scope(target, engagement.scope_targets)
 
+    required = selected or list(DEFAULT_PIPELINE_TOOLS)
     status = tools_status()
-    missing = [name for name in REQUIRED_TOOLS if not status.get(name, {}).get("available")]
+    missing = [name for name in required if not status.get(name, {}).get("available")]
     if missing and not settings.ethoscan_allow_mock:
         raise RuntimeError(
             f"F0 gate: tools em falta e mock desligado: {', '.join(missing)}. "
@@ -222,12 +260,13 @@ def _run_f0_gate(db: Session, job: Job, engagement: Engagement) -> None:
         )
 
     tool_runs = dict(job.tool_runs or {})
-    for name in REQUIRED_TOOLS:
+    for name in required:
         info = status.get(name, {})
         tool_runs[name] = {
             "mocked": bool(info.get("will_mock")),
             "available": bool(info.get("available")),
             "mode": info.get("mode", "unavailable"),
+            "selected": True,
         }
     job.tool_runs = tool_runs
     job.progress = 10
@@ -241,6 +280,7 @@ def _run_f0_gate(db: Session, job: Job, engagement: Engagement) -> None:
             "job_id": job.id,
             "missing_tools": missing,
             "mock_allowed": settings.ethoscan_allow_mock,
+            "selected_tools": required,
             "tool_runs": tool_runs,
         },
     )
