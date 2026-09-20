@@ -34,6 +34,10 @@ const el = {
   toolCatalog: document.getElementById("toolCatalog"),
   toolCatalogHint: document.getElementById("toolCatalogHint"),
   btnLaunchBurp: document.getElementById("btnLaunchBurp"),
+  updateBanner: document.getElementById("updateBanner"),
+  updateStatus: document.getElementById("updateStatus"),
+  btnCheckUpdate: document.getElementById("btnCheckUpdate"),
+  btnInstallUpdate: document.getElementById("btnInstallUpdate"),
 };
 
 let selectedEngagement = null;
@@ -41,6 +45,8 @@ let busy = false;
 let pollTimer = null;
 let lastCatalog = null;
 let defaultPipeline = ["nmap", "whatweb", "gobuster", "sslscan", "nuclei"];
+let updateCheckInFlight = false;
+let checkedUpdateAfterConnect = false;
 
 function setBusy(value) {
   busy = value;
@@ -49,6 +55,31 @@ function setBusy(value) {
   document.querySelectorAll("[data-action]").forEach((btn) => {
     btn.disabled = value;
   });
+}
+
+function applyUpdaterStatus(payload) {
+  if (!payload || !el.updateStatus) return;
+  const state = payload.state || "idle";
+  el.updateBanner.dataset.state = state;
+  el.updateStatus.textContent = payload.message || "Atualização…";
+  const ready = state === "ready";
+  el.btnInstallUpdate.hidden = !ready;
+  el.btnCheckUpdate.disabled = state === "checking" || state === "downloading";
+}
+
+async function checkForAppUpdates() {
+  if (!window.ethoscan?.checkForUpdates || updateCheckInFlight) return;
+  updateCheckInFlight = true;
+  try {
+    await window.ethoscan.checkForUpdates();
+  } catch (err) {
+    applyUpdaterStatus({
+      state: "error",
+      message: `Erro ao atualizar: ${err.message || err}`,
+    });
+  } finally {
+    updateCheckInFlight = false;
+  }
 }
 
 function escapeHtml(value) {
@@ -362,6 +393,10 @@ async function refresh() {
     el.connectionStatus.textContent = health.redis_ok
       ? `API ok · Redis ok · auth ${health.auth_enabled ? "on" : "off"} · mock ${health.mock_allowed ? "on" : "off"}`
       : `API ok · Redis DOWN — ${health.worker_hint || "suba Redis + worker"}`;
+    if (!checkedUpdateAfterConnect) {
+      checkedUpdateAfterConnect = true;
+      checkForAppUpdates().catch(() => {});
+    }
   } catch (err) {
     el.connectionStatus.textContent = `API indisponível — ${err.message || err}`;
     renderHealth(null);
@@ -435,8 +470,10 @@ el.loginForm.addEventListener("submit", async (ev) => {
         password: pass,
       });
       el.password.value = "";
+      checkedUpdateAfterConnect = false;
       showApp(config);
       await refresh();
+      checkForAppUpdates().catch(() => {});
       return;
     }
 
@@ -448,8 +485,10 @@ el.loginForm.addEventListener("submit", async (ev) => {
       });
       el.apiKey.value = "";
       await window.ethoscan.listEngagements();
+      checkedUpdateAfterConnect = false;
       showApp(config);
       await refresh();
+      checkForAppUpdates().catch(() => {});
       return;
     }
 
@@ -470,8 +509,10 @@ el.btnSkipAuth.addEventListener("click", async () => {
       apiKey: "",
       username: "",
     });
+    checkedUpdateAfterConnect = false;
     showApp(config);
     await refresh();
+    checkForAppUpdates().catch(() => {});
   } catch (err) {
     el.loginStatus.textContent = String(err.message || err);
   } finally {
@@ -488,9 +529,32 @@ el.btnLogout.addEventListener("click", async () => {
 });
 
 el.btnRefresh.addEventListener("click", () => {
-  refresh().catch((err) => {
-    el.connectionStatus.textContent = String(err.message || err);
+  refresh()
+    .then(() => checkForAppUpdates())
+    .catch((err) => {
+      el.connectionStatus.textContent = String(err.message || err);
+    });
+});
+
+el.btnCheckUpdate.addEventListener("click", () => {
+  checkForAppUpdates().catch(() => {});
+});
+
+el.btnInstallUpdate.addEventListener("click", async () => {
+  el.btnInstallUpdate.disabled = true;
+  applyUpdaterStatus({
+    state: "ready",
+    message: "A reiniciar para instalar a atualização…",
   });
+  try {
+    await window.ethoscan.installUpdate();
+  } catch (err) {
+    el.btnInstallUpdate.disabled = false;
+    applyUpdaterStatus({
+      state: "error",
+      message: `Erro ao instalar: ${err.message || err}`,
+    });
+  }
 });
 
 if (el.btnLaunchBurp) {
@@ -587,5 +651,10 @@ document.body.addEventListener("click", async (ev) => {
 });
 
 (async function boot() {
+  if (window.ethoscan?.onUpdaterStatus) {
+    window.ethoscan.onUpdaterStatus(applyUpdaterStatus);
+  }
+  // Verificação independente da API (arranque / offline API)
+  checkForAppUpdates().catch(() => {});
   await probeLoginGate();
 })();

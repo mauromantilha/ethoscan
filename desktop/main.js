@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
+const { autoUpdater } = require("electron-updater");
 const fs = require("fs");
 const path = require("path");
 
@@ -113,6 +114,124 @@ async function login({ apiBaseUrl, username, password }) {
   });
 }
 
+function sendUpdaterStatus(payload) {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send("updater:status", payload);
+    }
+  }
+}
+
+function setupAutoUpdater() {
+  if (!app.isPackaged) {
+    const devStatus = {
+      state: "dev",
+      message: "Atualizações só na app empacotada (não em npm start).",
+      version: app.getVersion(),
+    };
+    ipcMain.handle("updater:check", () => {
+      sendUpdaterStatus(devStatus);
+      return devStatus;
+    });
+    ipcMain.handle("updater:install", () => ({
+      ok: false,
+      message: "Reinício/instalação só na app empacotada.",
+    }));
+    // Informa o renderer assim que a janela existir
+    setTimeout(() => sendUpdaterStatus(devStatus), 500);
+    return;
+  }
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  // Releases públicos; sem code signing (lab/privado — SmartScreen pode avisar)
+  autoUpdater.setFeedURL({
+    provider: "github",
+    owner: "mauromantilha",
+    repo: "ethoscan",
+  });
+
+  autoUpdater.on("checking-for-update", () => {
+    sendUpdaterStatus({
+      state: "checking",
+      message: "A verificar atualizações…",
+      version: app.getVersion(),
+    });
+  });
+
+  autoUpdater.on("update-available", (info) => {
+    sendUpdaterStatus({
+      state: "available",
+      message: `Atualização disponível: v${info.version}`,
+      version: info.version,
+    });
+  });
+
+  autoUpdater.on("update-not-available", () => {
+    sendUpdaterStatus({
+      state: "up-to-date",
+      message: `Está na versão mais recente (v${app.getVersion()})`,
+      version: app.getVersion(),
+    });
+  });
+
+  autoUpdater.on("download-progress", (progress) => {
+    const percent = Math.round(progress.percent || 0);
+    sendUpdaterStatus({
+      state: "downloading",
+      message: `A descarregar… ${percent}%`,
+      percent,
+      version: app.getVersion(),
+    });
+  });
+
+  autoUpdater.on("update-downloaded", (info) => {
+    sendUpdaterStatus({
+      state: "ready",
+      message: "Atualização instalada — reinicie para aplicar",
+      version: info.version,
+    });
+  });
+
+  autoUpdater.on("error", (err) => {
+    sendUpdaterStatus({
+      state: "error",
+      message: `Erro ao atualizar: ${err?.message || err}`,
+      version: app.getVersion(),
+    });
+  });
+
+  ipcMain.handle("updater:check", async () => {
+    try {
+      const result = await autoUpdater.checkForUpdates();
+      return {
+        ok: true,
+        version: app.getVersion(),
+        updateInfo: result?.updateInfo || null,
+      };
+    } catch (err) {
+      const status = {
+        state: "error",
+        message: `Erro ao atualizar: ${err?.message || err}`,
+        version: app.getVersion(),
+      };
+      sendUpdaterStatus(status);
+      return status;
+    }
+  });
+
+  ipcMain.handle("updater:install", () => {
+    // isSilent=false, isForceRunAfter=true
+    setImmediate(() => autoUpdater.quitAndInstall(false, true));
+    return { ok: true };
+  });
+
+  // Arranque: verificar sem depender da API local
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch(() => {});
+  }, 1500);
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1180,
@@ -133,6 +252,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  setupAutoUpdater();
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

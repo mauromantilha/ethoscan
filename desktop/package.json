@@ -1,6 +1,6 @@
 {
   "name": "ethoscan-desktop",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "private": true,
   "description": "Shell Electron local para o Ethoscan — dispara pentests éticos via API existente",
   "author": "Ethoscan <ethoscan@users.noreply.github.com>",
@@ -40,6 +40,13 @@
     "extraMetadata": {
       "main": "main.js"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "mauromantilha",
+        "repo": "ethoscan"
+      }
+    ],
     "linux": {
       "target": [
         "AppImage",
@@ -74,5 +81,8 @@
   "devDependencies": {
     "electron": "^35.0.0",
     "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }

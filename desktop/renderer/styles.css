@@ -59,6 +59,58 @@ textarea {
   margin: 0.7rem 0 0;
 }
 
+.update-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 1rem;
+  margin: 0 0 1.15rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg-elev) 70%, transparent);
+  animation: rise 0.5s ease-out both;
+}
+
+.update-label {
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-2);
+}
+
+.update-text {
+  flex: 1 1 12rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.update-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.update-banner[data-state="checking"] .update-text,
+.update-banner[data-state="downloading"] .update-text {
+  color: var(--ink);
+}
+
+.update-banner[data-state="available"] .update-text,
+.update-banner[data-state="ready"] .update-text,
+.update-banner[data-state="up-to-date"] .update-text {
+  color: var(--accent);
+}
+
+.update-banner[data-state="error"] .update-text {
+  color: var(--danger);
+}
+
+.update-banner[data-state="dev"] .update-text {
+  color: var(--muted);
+}
+
 .grid {
   display: grid;
   gap: 1.15rem;

@@ -37,6 +37,19 @@ Após login: escolha tools no formulário (checkboxes; desativadas se não insta
 
 Com `ETHOSCAN_DISABLE_AUTH=true` (lab puro), o desktop pode continuar sem login.
 
+## Atualizações automáticas
+
+A app empacotada (v0.1.2+) usa [electron-updater](https://www.electron.build/auto-update) com feed nos [GitHub Releases](https://github.com/mauromantilha/ethoscan/releases) do repositório `mauromantilha/ethoscan`.
+
+- Verifica ao **arranque** (mesmo se a API local estiver offline) e de novo ao **conectar / login** (e no botão **Verificar** / **Atualizar**).
+- UI em pt-BR: a verificar / disponível / a descarregar / pronta (reiniciar) / atualizado / erro.
+- **Windows:** o auto-update aplica-se à instalação **NSIS**. O build **portable** continua a ser gerado, mas **não** atualiza in-place de forma fiável — use o instalador NSIS.
+- **Linux:** AppImage pode atualizar; `.deb` tipicamente exige reinstalar o pacote.
+- Sem code signing por agora (uso lab/privado). O Windows SmartScreen pode avisar em binários não assinados.
+- Em `npm start` (dev) o updater é no-op e mostra que só funciona na app empacotada.
+
+**Primeira instalação de 0.1.2:** descarregar manualmente o instalador do release. Versões seguintes (0.1.3+) atualizam sozinhas quando online.
+
 ## Desenvolvimento (sem empacotar)
 
 ```bash
@@ -46,7 +59,7 @@ npm start
 
 ## Empacotar instaladores (local)
 
-Usa [electron-builder](https://www.electron.build/). Os artefactos saem em `desktop/release/`.
+Usa [electron-builder](https://www.electron.build/). Os artefactos saem em `desktop/release/` (inclui `latest.yml` / `latest-linux.yml` graças a `publish.provider=github`).
 
 ```bash
 npm install
@@ -63,8 +76,8 @@ npm run dist
 
 | Script | Resultado típico |
 |--------|------------------|
-| `dist:linux` | `Ethoscan-0.1.0-linux-x86_64.AppImage`, `Ethoscan-0.1.0-linux-amd64.deb` |
-| `dist:win` | `Ethoscan-0.1.0-win-x64.exe` (NSIS), `Ethoscan-0.1.0-win-x64-portable.exe` |
+| `dist:linux` | `Ethoscan-0.1.2-linux-x86_64.AppImage`, `Ethoscan-0.1.2-linux-amd64.deb` |
+| `dist:win` | `Ethoscan-0.1.2-win-x64.exe` (NSIS), `Ethoscan-0.1.2-win-x64-portable.exe` |
 
 Cross-compilar Windows a partir de Linux não é o caminho suportado; use o workflow de CI ou uma máquina Windows.
 
@@ -77,10 +90,10 @@ O workflow [`.github/workflows/desktop-release.yml`](../.github/workflows/deskto
 
    ```bash
    git checkout main && git pull
-   git tag -a v0.1.0 -m "Ethoscan Desktop v0.1.0"
-   git push origin v0.1.0
+   git tag -a v0.1.2 -m "Ethoscan Desktop v0.1.2"
+   git push origin v0.1.2
    ```
 
-3. O CI gera artefactos Linux (ubuntu) e Windows, e anexa-os a um [GitHub Release](https://github.com/mauromantilha/ethoscan/releases) com o mesmo nome da tag
+3. O CI gera artefactos Linux (ubuntu) e Windows (`*.exe`, `latest.yml`, blockmaps), e anexa-os a um [GitHub Release](https://github.com/mauromantilha/ethoscan/releases) com o mesmo nome da tag
 
 Releases: https://github.com/mauromantilha/ethoscan/releases
