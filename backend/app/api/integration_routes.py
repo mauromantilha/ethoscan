@@ -16,7 +16,8 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.core.authz import validate_scope
+from app.config import get_settings
+from app.core.authz import assert_targets_allowed, validate_scope
 from app.core.orchestrator import audit
 from app.core.security import require_api_key
 from app.db import get_db
@@ -126,6 +127,7 @@ def start_scan(
         raise HTTPException(403, "roe_acknowledged deve ser true (autorização explícita).")
 
     scope = validate_scope(payload.targets)
+    assert_targets_allowed(scope, get_settings().allowlist_targets)
     try:
         selected = validate_selected_tools(payload.selected_tools)
     except ValueError as exc:

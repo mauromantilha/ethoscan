@@ -232,6 +232,11 @@ Ver [docs/kali-acceptance.md](docs/kali-acceptance.md).
   Gerar hash: `python3 -c "import bcrypt; print(bcrypt.hashpw(b'YOUR_PASSWORD', bcrypt.gensalt()).decode())"`
 - CORS apenas para `ETHOSCAN_CORS_ORIGINS` (default `http://localhost:3000`) — **não** usa `*`
 - Bind diário: `127.0.0.1`
+- `ETHOSCAN_ALLOWLIST` (CSV de hosts/IPs/CIDRs): restringe **globalmente** o que pode ser escaneado
+  (revalidado na criação e na execução); vazio = sem restrição extra. O escopo recusa TLD/single-label
+  (`com`, `io`) e sufixos públicos (`co.uk`, `com.br`).
+- Sessões do login local ficam no **Redis** (sobrevivem a restart da API); sem Redis há fallback em
+  memória do processo.
 
 **Lab local sem auth**
 

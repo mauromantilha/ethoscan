@@ -6,7 +6,8 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
 from app.adapters import tools_status
-from app.core.authz import assert_roe, validate_scope
+from app.config import get_settings
+from app.core.authz import assert_roe, assert_targets_allowed, validate_scope
 from app.core.orchestrator import PHASE_LABELS, audit
 from app.core.reports import write_pdf_report
 from app.core.security import require_api_key
@@ -45,6 +46,8 @@ def list_engagements(db: Session = Depends(get_db)) -> list[Engagement]:
 @router.post("/engagements", response_model=EngagementOut)
 def create_engagement(payload: EngagementCreate, db: Session = Depends(get_db)) -> Engagement:
     scope = validate_scope(payload.scope_targets)
+    # Allowlist global (ETHOSCAN_ALLOWLIST): falha rápido na criação.
+    assert_targets_allowed(scope, get_settings().allowlist_targets)
     try:
         selected = validate_selected_tools(payload.selected_tools)
     except ValueError as exc:
