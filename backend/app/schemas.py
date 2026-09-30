@@ -136,6 +136,19 @@ class HistoryItemOut(BaseModel):
         return list(value or [])
 
 
+class AuditEventOut(BaseModel):
+    """Evento da trilha de auditoria (GET /api/audit)."""
+
+    id: int
+    engagement_id: int | None = None
+    actor: str
+    action: str
+    detail: dict[str, Any]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class HealthOut(BaseModel):
     status: str
     mode: str

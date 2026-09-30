@@ -10,9 +10,11 @@ from app.api.routes import router
 from app.config import get_settings
 from app.core.orchestrator import PHASE_LABELS
 from app.db import init_db
+from app.logging_conf import configure_logging
 from app.queue import ping_redis
 from app.schemas import HealthOut
 
+configure_logging()
 logger = logging.getLogger("ethoscan")
 
 

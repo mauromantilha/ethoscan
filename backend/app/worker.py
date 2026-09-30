@@ -10,13 +10,13 @@ import time
 from app.config import get_settings
 from app.core.orchestrator import run_pipeline
 from app.db import SessionLocal, init_db
+from app.logging_conf import configure_logging
 from app.models import Job, JobStatus
 from app.queue import clear_cancel, ping_redis, pop_job
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+configure_logging()
+# libs de terceiros (redis, sqlalchemy) mantêm o handler do root
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ethoscan.worker")
 
 _running = True
