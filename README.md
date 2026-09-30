@@ -136,9 +136,31 @@ npm run dist:win     # → desktop/release/*.exe (preferir Windows / CI)
 ### Com Docker
 
 ```bash
-docker compose up --build
-# sobe postgres + redis + api + worker + web
+cp .env.example .env      # defina ETHOSCAN_API_KEY e/ou ETHOSCAN_LOCAL_* (login local)
+docker compose up -d --build
+# sobe postgres + redis (dedicado) + api + worker + web
 ```
+
+Exposição de cada serviço (configurável no `.env`):
+
+| Serviço | Porta no host | Observação |
+|---|---|---|
+| `api` | `${API_BIND}:${API_PORT}` — default `127.0.0.1:8000` | `API_BIND=0.0.0.0` publica na rede local (auth continua obrigatória) |
+| `web` | `${WEB_BIND}:${WEB_PORT}` — default `127.0.0.1:3000` | a UI embute `NEXT_PUBLIC_API_KEY` no bundle JS: exponha só se aceitar esse risco |
+| `worker` | nenhuma | consome a fila e executa o pipeline |
+| `redis` | **nenhuma** | Redis **dedicado** do Ethoscan (`ethoscan_redis`, com AOF) na rede interna do compose |
+| `postgres` | `127.0.0.1:${POSTGRES_PORT:-15432}` | loopback + porta alternativa para não colidir com outros stacks |
+
+- **Desktop em outra máquina:** no login, troque "URL base da API" para `http://<IP-do-host>:8000`
+  (ex.: `http://192.168.0.7:8000`) e entre com o utilizador local (`mauro` + senha) — não precisa da master key.
+  O desktop fala com a API pelo processo principal (Node), então **CORS não se aplica**.
+- **UI web na rede:** `WEB_BIND=0.0.0.0` no `.env` + `docker compose build web`
+  (os `NEXT_PUBLIC_*` são embutidos no bundle **no build**; se o navegador acessar por IP, ajuste
+  `NEXT_PUBLIC_API_URL` para esse IP e inclua a origem em `ETHOSCAN_CORS_ORIGINS`).
+- **Dados:** Postgres no volume `ethoscan_pg`; relatórios HTML/PDF em `./artifacts/` no host.
+- **Mudou código?** `docker compose up -d --build api worker` (sem `--reload`: reload mataria jobs em execução).
+- **Logs:** `docker compose logs -f api worker` (`ETHOSCAN_LOG_FORMAT=json` no `.env` para logs estruturados).
+- **Parar:** `docker compose down` (use `down -v` para apagar também os volumes/dados).
 
 ## CLI
 

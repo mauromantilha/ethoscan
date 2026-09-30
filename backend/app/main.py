@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.adapters import tools_status
 from app.api.auth_routes import router as auth_router
+from app.api.integration_routes import router as integration_router
 from app.api.routes import router
 from app.config import get_settings
 from app.core.orchestrator import PHASE_LABELS
@@ -63,6 +64,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(router)
+app.include_router(integration_router)
 
 
 @app.get("/health", response_model=HealthOut)

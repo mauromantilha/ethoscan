@@ -76,7 +76,7 @@ def session_username(token: str) -> str | None:
 
 
 def credential_accepted(credential: str | None) -> bool:
-    """Aceita ETHOSCAN_API_KEY configurada ou token de sessão válido."""
+    """Aceita ETHOSCAN_API_KEY, uma ETHOSCAN_SERVICE_KEYS ou token de sessão válido."""
     if not credential or not credential.strip():
         return False
     value = credential.strip()
@@ -84,6 +84,10 @@ def credential_accepted(credential: str | None) -> bool:
     expected = settings.ethoscan_api_key.strip()
     if expected and secrets.compare_digest(value, expected):
         return True
+    for service_key in settings.ethoscan_service_keys.split(","):
+        candidate = service_key.strip()
+        if candidate and secrets.compare_digest(value, candidate):
+            return True
     return session_username(value) is not None
 
 

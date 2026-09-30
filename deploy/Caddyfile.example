@@ -1,0 +1,51 @@
+# Exemplo de Caddy para acesso remoto (TLS automático via Let's Encrypt).
+#   cp deploy/Caddyfile.example deploy/Caddyfile   # ajuste o domínio e o e-mail
+#   docker compose -f docker-compose.yml -f docker-compose.remote.yml up -d
+#
+# Use com ETHOSCAN_API_KEY forte. A API executa varreduras: trate como acesso privilegiado.
+
+{
+	email voce@exemplo.com
+	# descomente para testar sem domínio real (certificado self-signed):
+	# auto_https disable_redirects
+}
+
+# --- API para automação (n8n e afins) ---
+ethoscan.seudominio.com {
+	# Opcional (recomendado): só o IP de saída do seu n8n fala com a API.
+	# Se o n8n estiver em cloud sem IP fixo, use Cloudflare Access/Tailscale no lugar disto.
+	# @bloqueado not remote_ip 203.0.113.10
+	# respond @bloqueado "forbidden" 403
+
+	# Rate limit simples por IP (protege contra força-bruta na API key)
+	rate_limit {
+		zone ethoscan_api {
+			key {remote_host}
+			events 60
+			window 1m
+		}
+	}
+
+	reverse_proxy api:8000 {
+		header_up X-Real-IP {remote_host}
+		# sobrescreve (em vez de anexar): impede IP forjado nos logs/audit da API
+		header_up X-Forwarded-For {remote_host}
+	}
+
+	log {
+		output file /data/access-api.log
+		format json
+	}
+}
+
+# --- UI web (opcional; embute NEXT_PUBLIC_API_KEY no bundle: exponha com cautela) ---
+# ui.seudominio.com {
+# 	rate_limit {
+# 		zone ethoscan_ui {
+# 			key {remote_host}
+# 			events 120
+# 			window 1m
+# 		}
+# 	}
+# 	reverse_proxy web:3000
+# }
