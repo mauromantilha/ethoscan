@@ -1,0 +1,8 @@
+# Contexto de build do frontend
+node_modules/
+.next/
+out/
+.env.local
+.env*.local
+*.tsbuildinfo
+npm-debug.log*

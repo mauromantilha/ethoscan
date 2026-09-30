@@ -83,15 +83,12 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
-      NEXT_PUBLIC_API_KEY: ${ETHOSCAN_API_KEY:-}
+      args:
+        # NEXT_PUBLIC_* são embutidos no bundle no build: mudar exige `docker compose build web`
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+        NEXT_PUBLIC_API_KEY: ${ETHOSCAN_API_KEY:-}
     ports:
       - "3000:3000"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-      - /app/.next
     depends_on:
       - api
 

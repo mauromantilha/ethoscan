@@ -161,6 +161,21 @@ python cli.py cancel 1
 - Download PDF: `GET /api/jobs/{id}/report.pdf` (`application/pdf`, imprimível)
 - Catálogo: `GET /api/tools` — `selected_tools` no create/start (vazio = pipeline clássico)
 
+## Auditoria e logs
+
+- `GET /api/audit` — trilha de auditoria paginada, com filtros `engagement_id`, `job_id` e
+  `action`; total no header `X-Total-Count`.
+- `GET /api/findings` — aceita `limit` (1–500), `offset` e `severity`; total em `X-Total-Count`.
+- `tool_ran` registra `ok`, `exit_code` e `error` de cada execução; falha/timeout de tool vira
+  achado `tool_error` no relatório **sem derrubar o job** (as demais fases continuam).
+- Logs estruturados: `ETHOSCAN_LOG_LEVEL` (default `INFO`) e `ETHOSCAN_LOG_FORMAT=json` gera uma
+  linha JSON por evento (`job_id`, `tool`, `exit_code`, `phase`...).
+
+```bash
+ETHOSCAN_LOG_FORMAT=json uvicorn app.main:app     # API
+ETHOSCAN_LOG_FORMAT=json python -m app.worker     # worker
+```
+
 ## Migrações
 
 SQLite local continua a funcionar. Alembic cobre evolução de schema (`backend/alembic/`).
@@ -175,10 +190,11 @@ cd backend && alembic upgrade head
 
 ```bash
 ./scripts/smoke.sh
-# ou: cd backend && ETHOSCAN_DISABLE_AUTH=true pytest tests/ -q
+# ou: cd backend && ETHOSCAN_DISABLE_AUTH=true pytest -q
 ```
 
-Cobertura: RoE negado, alvo inválido, create→run (mock)→findings→report HTML/PDF, selected_tools, catálogo, cancel, auth.
+Cobertura: RoE negado, alvo inválido, create→run (mock)→findings→report HTML/PDF, selected_tools,
+catálogo, cancel, auth, falha de tool (`tool_error`) e auditoria/paginação (`/api/audit`).
 
 ## Aceitação Kali (manual)
 

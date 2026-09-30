@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     ethoscan_queue_key: str = "ethoscan:jobs"
     ethoscan_cancel_prefix: str = "ethoscan:cancel:"
 
+    # Logs — ETHOSCAN_LOG_FORMAT=json para logs estruturados (app/logging_conf.py)
+    ethoscan_log_level: str = "INFO"
+    ethoscan_log_format: str = "text"
+
     @property
     def artifacts_path(self) -> Path:
         path = Path(self.ethoscan_artifacts_dir).resolve()

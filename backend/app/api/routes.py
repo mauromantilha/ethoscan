@@ -1,7 +1,7 @@
 import subprocess
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
@@ -12,9 +12,10 @@ from app.core.reports import write_pdf_report
 from app.core.security import require_api_key
 from app.db import get_db
 from app.lab_inventory import lab_tools_inventory
-from app.models import Engagement, Finding, Job, JobStatus
+from app.models import AuditEvent, Engagement, Finding, Job, JobStatus, Severity
 from app.queue import enqueue_job, ping_redis, request_cancel
 from app.schemas import (
+    AuditEventOut,
     EngagementCreate,
     EngagementOut,
     FindingOut,
@@ -336,13 +337,43 @@ def lab_tools() -> LabInventoryOut:
 
 @router.get("/findings", response_model=list[FindingOut])
 def list_findings(
+    response: Response,
     engagement_id: int | None = None,
     job_id: int | None = None,
+    severity: Severity | None = None,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ) -> list[Finding]:
+    """Achados (mais recentes primeiro) com paginação; total em ``X-Total-Count``."""
     q = db.query(Finding)
     if engagement_id is not None:
         q = q.filter(Finding.engagement_id == engagement_id)
     if job_id is not None:
         q = q.filter(Finding.job_id == job_id)
-    return q.order_by(Finding.id.desc()).all()
+    if severity is not None:
+        q = q.filter(Finding.severity == severity)
+    response.headers["X-Total-Count"] = str(q.count())
+    return q.order_by(Finding.id.desc()).offset(offset).limit(limit).all()
+
+
+@router.get("/audit", response_model=list[AuditEventOut])
+def list_audit(
+    response: Response,
+    engagement_id: int | None = None,
+    job_id: int | None = None,
+    action: str | None = None,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+) -> list[AuditEvent]:
+    """Trilha de auditoria (mais recentes primeiro); total em ``X-Total-Count``."""
+    q = db.query(AuditEvent)
+    if engagement_id is not None:
+        q = q.filter(AuditEvent.engagement_id == engagement_id)
+    if action:
+        q = q.filter(AuditEvent.action == action)
+    if job_id is not None:
+        q = q.filter(AuditEvent.detail["job_id"].as_integer() == job_id)
+    response.headers["X-Total-Count"] = str(q.count())
+    return q.order_by(AuditEvent.id.desc()).offset(offset).limit(limit).all()

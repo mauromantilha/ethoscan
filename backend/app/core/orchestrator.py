@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -7,14 +8,16 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.adapters import all_adapters, tools_status
-from app.adapters.base import AdapterResult
+from app.adapters.base import AdapterResult, RawFinding
 from app.config import get_settings
 from app.core.authz import assert_in_scope, assert_roe
 from app.core.correlator import correlate
 from app.core.reports import write_html_report, write_pdf_report
-from app.models import AuditEvent, Engagement, Finding, Job, JobStatus
+from app.models import AuditEvent, Engagement, Finding, Job, JobStatus, Severity
 from app.queue import clear_cancel, is_cancel_requested
 from app.tool_catalog import DEFAULT_PIPELINE_TOOLS, filter_by_intensity, resolve_selected_tools
+
+logger = logging.getLogger("ethoscan.orchestrator")
 
 
 # F0 = gate explícito (RoE + escopo + tools). F1–F6 = execução.
@@ -87,6 +90,11 @@ def _mark_cancelled(db: Session, job: Job, engagement: Engagement | None) -> Non
     job.error = job.error or "Cancelado pelo operador"
     db.commit()
     clear_cancel(job.id)
+    logger.info(
+        "job cancelado na fase %s",
+        job.phase,
+        extra={"job_id": job.id, "phase": job.phase, "status": JobStatus.cancelled.value},
+    )
     audit(
         db,
         engagement.id if engagement else None,
@@ -111,6 +119,26 @@ def _prune_redundant_tools(selected: list[str], intensity: str) -> list[str]:
     return pruned if pruned else selected
 
 
+def tool_error_finding(result: AdapterResult, target: str) -> RawFinding:
+    """Achado explícito de falha de tool: o alvo pode ter sido avaliado de forma incompleta."""
+    detail = result.error or f"exit code {result.exit_code}"
+    return RawFinding(
+        title=f"Ferramenta {result.tool} falhou",
+        severity=Severity.info,
+        target=target,
+        tool=result.tool,
+        category="tool_error",
+        description=(
+            f"A execução de {result.tool} não concluiu com sucesso ({detail}); "
+            "os achados deste alvo podem estar incompletos."
+        ),
+        evidence=(result.stderr or result.stdout or detail)[:2000],
+        remediation=(
+            f"Executar '{result.tool}' manualmente no alvo e revisar instalação/permissões."
+        ),
+    )
+
+
 def _run_adapter_targets(
     adapter,
     targets: list[str],
@@ -124,8 +152,25 @@ def _run_adapter_targets(
     last_target: str | None = None
     for target in targets:
         assert_in_scope(target, scope_targets)
-        last = adapter.run(target, job_dir, intensity)
+        try:
+            last = adapter.run(target, job_dir, intensity)
+        except Exception as exc:  # noqa: BLE001 - falha de uma tool não derruba o pipeline
+            logger.warning(
+                "adapter %s levantou exceção: %s",
+                adapter.name,
+                exc,
+                extra={"tool": adapter.name, "target": target},
+            )
+            last = AdapterResult(
+                tool=adapter.name,
+                mocked=False,
+                command=[adapter.name],
+                error=f"{type(exc).__name__}: {exc}",
+            )
         findings.extend(last.findings)
+        if not last.ok:
+            # falha/timeout/exit != 0 vira achado explícito (audit registra ok/exit_code)
+            findings.append(tool_error_finding(last, target))
         last_target = target
     return last, findings, last_target
 
@@ -231,6 +276,17 @@ def run_pipeline(db: Session, job_id: int) -> None:
                         "selected_tools": selected,
                     },
                 )
+                logger.info(
+                    "job concluído (%s achados, tools=%s)",
+                    len(findings),
+                    ",".join(selected),
+                    extra={
+                        "job_id": job.id,
+                        "phase": "F6",
+                        "status": JobStatus.completed.value,
+                        "findings": len(findings),
+                    },
+                )
                 continue
 
             active = [t for t in tools if t in selected_set]
@@ -307,6 +363,9 @@ def run_pipeline(db: Session, job_id: int) -> None:
         job.current_tool = None
         db.commit()
         clear_cancel(job.id)
+        logger.exception(
+            "job %s falhou: %s", job_id, exc, extra={"job_id": job_id, "status": "failed"}
+        )
         audit(
             db,
             engagement.id if engagement else None,
@@ -339,8 +398,23 @@ def _record_tool_run(
             "last_target": last_target,
             "command": (result.command or [])[:8],
             "source": tool_name,
+            "ok": result.ok,
+            "exit_code": result.exit_code,
+            "error": result.error,
         }
     job.tool_runs = runs
+    if result is not None and not result.ok:
+        logger.warning(
+            "tool %s terminou com falha (%s)",
+            tool_name,
+            result.error or f"exit code {result.exit_code}",
+            extra={
+                "job_id": job.id,
+                "tool": tool_name,
+                "target": last_target,
+                "exit_code": result.exit_code,
+            },
+        )
     audit(
         db,
         engagement.id,
@@ -351,6 +425,9 @@ def _record_tool_run(
             "target": last_target,
             "mocked": bool(result.mocked) if result else False,
             "command": (result.command if result else None),
+            "ok": result.ok if result else None,
+            "exit_code": result.exit_code if result else None,
+            "error": result.error if result else None,
         },
     )
 
