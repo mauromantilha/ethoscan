@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     # Fila Redis
     ethoscan_queue_key: str = "ethoscan:jobs"
     ethoscan_cancel_prefix: str = "ethoscan:cancel:"
+    ethoscan_callback_prefix: str = "ethoscan:callback:"
+    # Chaves de serviço extras (CSV) — ex.: uma dedicada por integração (n8n),
+    # revogável sem trocar a master key nem o login local.
+    ethoscan_service_keys: str = ""
 
     # Logs — ETHOSCAN_LOG_FORMAT=json para logs estruturados (app/logging_conf.py)
     ethoscan_log_level: str = "INFO"

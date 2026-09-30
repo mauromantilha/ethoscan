@@ -5,6 +5,7 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
+import httpx
 from sqlalchemy.orm import Session
 
 from app.adapters import all_adapters, tools_status
@@ -14,10 +15,13 @@ from app.core.authz import assert_in_scope, assert_roe
 from app.core.correlator import correlate
 from app.core.reports import write_html_report, write_pdf_report
 from app.models import AuditEvent, Engagement, Finding, Job, JobStatus, Severity
-from app.queue import clear_cancel, is_cancel_requested
+from app.queue import clear_callback, clear_cancel, get_callback, is_cancel_requested
 from app.tool_catalog import DEFAULT_PIPELINE_TOOLS, filter_by_intensity, resolve_selected_tools
 
 logger = logging.getLogger("ethoscan.orchestrator")
+
+# timeout do webhook de conclusão (best-effort: não pode travar o worker)
+CALLBACK_TIMEOUT_SECONDS = 5.0
 
 
 # F0 = gate explícito (RoE + escopo + tools). F1–F6 = execução.
@@ -83,6 +87,57 @@ def _check_cancel(db: Session, job: Job) -> None:
         raise JobCancelled(f"Job #{job.id} cancelado")
 
 
+def _notify_callback(
+    db: Session,
+    job: Job,
+    engagement: Engagement | None,
+    status: str,
+    findings_count: int | None = None,
+) -> None:
+    """POST best-effort no webhook registrado pelo cliente (API de integração/n8n).
+
+    Nunca falha o job: erro/timeout viram evento ``callback_failed`` no audit. A URL é
+    validada (http/https) no momento do registro, que exige credencial válida.
+    """
+    url = get_callback(job.id)
+    if not url:
+        return
+    payload = {
+        "job_id": job.id,
+        "engagement_id": job.engagement_id,
+        "status": status,
+        "phase": job.phase,
+        "progress": job.progress,
+        "error": job.error,
+        "findings_count": findings_count,
+        "report_path": job.report_path,
+        "report_pdf_path": job.report_pdf_path,
+        "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+    }
+    engagement_id = engagement.id if engagement else None
+    try:
+        response = httpx.post(url, json=payload, timeout=CALLBACK_TIMEOUT_SECONDS)
+        audit(
+            db,
+            engagement_id,
+            "callback_sent",
+            {"job_id": job.id, "url": url, "status_code": response.status_code},
+        )
+        logger.info(
+            "callback enviado (HTTP %s)", response.status_code, extra={"job_id": job.id}
+        )
+    except Exception as exc:  # noqa: BLE001 - webhook nunca derruba o pipeline
+        audit(
+            db,
+            engagement_id,
+            "callback_failed",
+            {"job_id": job.id, "url": url, "error": str(exc)[:200]},
+        )
+        logger.warning("callback falhou: %s", exc, extra={"job_id": job.id})
+    finally:
+        clear_callback(job.id)
+
+
 def _mark_cancelled(db: Session, job: Job, engagement: Engagement | None) -> None:
     job.status = JobStatus.cancelled
     job.finished_at = datetime.now(timezone.utc)
@@ -95,6 +150,7 @@ def _mark_cancelled(db: Session, job: Job, engagement: Engagement | None) -> Non
         job.phase,
         extra={"job_id": job.id, "phase": job.phase, "status": JobStatus.cancelled.value},
     )
+    _notify_callback(db, job, engagement, JobStatus.cancelled.value)
     audit(
         db,
         engagement.id if engagement else None,
@@ -287,6 +343,9 @@ def run_pipeline(db: Session, job_id: int) -> None:
                         "findings": len(findings),
                     },
                 )
+                _notify_callback(
+                    db, job, engagement, JobStatus.completed.value, findings_count=len(findings)
+                )
                 continue
 
             active = [t for t in tools if t in selected_set]
@@ -372,6 +431,7 @@ def run_pipeline(db: Session, job_id: int) -> None:
             "job_failed",
             {"job_id": job_id, "error": str(exc), "trace": traceback.format_exc()[-2000:]},
         )
+        _notify_callback(db, job, engagement, JobStatus.failed.value)
 
 
 def _record_tool_run(

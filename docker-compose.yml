@@ -1,12 +1,14 @@
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ethoscan
       POSTGRES_PASSWORD: ethoscan
       POSTGRES_DB: ethoscan
     ports:
-      - "5432:5432"
+      # dado sensível: publica só no loopback do host, em porta que não colide
+      - "127.0.0.1:${POSTGRES_PORT:-15432}:5432"
     volumes:
       - ethoscan_pg:/var/lib/postgresql/data
     healthcheck:
@@ -16,9 +18,13 @@ services:
       retries: 10
 
   redis:
+    # Redis DEDICADO do Ethoscan (fila de jobs + flags de cancelamento).
+    # Sem porta no host: apenas a rede interna do compose fala com ele.
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - ethoscan_redis:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -29,46 +35,61 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    restart: unless-stopped
     env_file:
+      # ETHOSCAN_API_KEY, ETHOSCAN_LOCAL_* (hash bcrypt), logs... vêm daqui, sem
+      # interpolação do compose (essencial para hash bcrypt, que contém "$")
       - .env
     environment:
       DATABASE_URL: postgresql+psycopg://ethoscan:ethoscan@postgres:5432/ethoscan
       REDIS_URL: redis://redis:6379/0
       ETHOSCAN_MODE: local
-      ETHOSCAN_ALLOW_MOCK: "true"
+      ETHOSCAN_ALLOW_MOCK: ${ETHOSCAN_ALLOW_MOCK:-true}
       ETHOSCAN_ARTIFACTS_DIR: /app/artifacts
-      ETHOSCAN_CORS_ORIGINS: http://localhost:3000
-      ETHOSCAN_DISABLE_AUTH: ${ETHOSCAN_DISABLE_AUTH:-true}
+      ETHOSCAN_CORS_ORIGINS: ${ETHOSCAN_CORS_ORIGINS:-http://localhost:3000}
+      # API publicada na rede => auth ligada por padrão (login local e/ou X-API-Key)
+      ETHOSCAN_DISABLE_AUTH: ${ETHOSCAN_DISABLE_AUTH:-false}
       ETHOSCAN_API_KEY: ${ETHOSCAN_API_KEY:-}
+      ETHOSCAN_LOG_LEVEL: ${ETHOSCAN_LOG_LEVEL:-INFO}
+      ETHOSCAN_LOG_FORMAT: ${ETHOSCAN_LOG_FORMAT:-text}
     ports:
-      - "8000:8000"
+      # API_BIND=0.0.0.0 libera para a rede local (desktop de outra máquina)
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-8000}:8000"
     volumes:
+      # relatórios HTML/PDF ficam visíveis no host
       - ./artifacts:/app/artifacts
-      - ./backend:/app
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    # sem --reload (reload mataria jobs em execução): rebuild para aplicar código novo
+    # --proxy-headers: atrás de proxy reverso (Caddy/nginx/Tunnel) o client real vai nos logs/audit
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=*
 
   worker:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    restart: unless-stopped
     env_file:
       - .env
     environment:
       DATABASE_URL: postgresql+psycopg://ethoscan:ethoscan@postgres:5432/ethoscan
       REDIS_URL: redis://redis:6379/0
       ETHOSCAN_MODE: local
-      ETHOSCAN_ALLOW_MOCK: "true"
+      ETHOSCAN_ALLOW_MOCK: ${ETHOSCAN_ALLOW_MOCK:-true}
       ETHOSCAN_ARTIFACTS_DIR: /app/artifacts
-      ETHOSCAN_DISABLE_AUTH: ${ETHOSCAN_DISABLE_AUTH:-true}
-      ETHOSCAN_API_KEY: ${ETHOSCAN_API_KEY:-}
+      ETHOSCAN_LOG_LEVEL: ${ETHOSCAN_LOG_LEVEL:-INFO}
+      ETHOSCAN_LOG_FORMAT: ${ETHOSCAN_LOG_FORMAT:-text}
     volumes:
       - ./artifacts:/app/artifacts
-      - ./backend:/app
     depends_on:
       postgres:
         condition: service_healthy
@@ -85,12 +106,17 @@ services:
       dockerfile: Dockerfile
       args:
         # NEXT_PUBLIC_* são embutidos no bundle no build: mudar exige `docker compose build web`
-        NEXT_PUBLIC_API_URL: http://localhost:8000
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
         NEXT_PUBLIC_API_KEY: ${ETHOSCAN_API_KEY:-}
+    restart: unless-stopped
     ports:
-      - "3000:3000"
+      # a UI embute a NEXT_PUBLIC_API_KEY no JS: por padrão fica só no loopback.
+      # WEB_BIND=0.0.0.0 publica para a rede local (aceite o risco do bundle).
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-3000}:3000"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
   ethoscan_pg:
+  ethoscan_redis:

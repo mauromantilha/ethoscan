@@ -1,0 +1,40 @@
+# Override OPCIONAL: publica a API atrás de um proxy TLS (Caddy) para acesso remoto.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.remote.yml up -d
+#
+# Uso: copie deploy/Caddyfile.example -> deploy/Caddyfile, ajuste o domínio/e-mail
+# (ou use Cloudflare Tunnel/Tailscale — ver docs/remote-access.md) e publique só a 443.
+#
+# Com este override:
+#   - api/worker/web/postgres/redis ficam fechados para fora (só a rede do compose);
+#   - apenas o Caddy (80/443) fica exposto, com TLS automático.
+services:
+  api:
+    # não publica mais a 8000 no host: quem fala com ele é o Caddy
+    ports: !override []
+
+  web:
+    ports: !override []
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  caddy_data:
+  caddy_config:

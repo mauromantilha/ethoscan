@@ -149,6 +149,82 @@ class AuditEventOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class IntegrationScanRequest(BaseModel):
+    """Entrada da API de integração (`POST /api/integrations/n8n/scan`)."""
+
+    name: str = Field(min_length=2, max_length=200)
+    targets: list[str] = Field(min_length=1)
+    intensity: Intensity = Intensity.safe
+    roe_acknowledged: bool = False
+    selected_tools: list[str] | None = None
+    # Referência do sistema chamador (rastreabilidade no nome/notes do engagement)
+    external_ref: str | None = Field(default=None, max_length=120)
+    # Webhook opcional chamado quando o job termina (http/https)
+    callback_url: str | None = Field(default=None, max_length=500)
+
+    @field_validator("targets")
+    @classmethod
+    def clean_targets(cls, value: list[str]) -> list[str]:
+        cleaned = [t.strip() for t in value if t and t.strip()]
+        if not cleaned:
+            raise ValueError("Informe ao menos um alvo em targets")
+        return cleaned
+
+
+class IntegrationScanResponse(BaseModel):
+    engagement_id: int
+    job_id: int
+    status: JobStatus
+    phase: str
+    callback_registered: bool = False
+    status_url: str
+    findings_url: str
+    report_html_url: str
+    report_pdf_url: str
+    audit_url: str
+    message: str
+
+
+class IntegrationJobStatus(BaseModel):
+    """Status compacto para polling de automação."""
+
+    job_id: int
+    engagement_id: int
+    status: JobStatus
+    phase: str
+    progress: int
+    current_tool: str | None = None
+    error: str | None = None
+    selected_tools: list[str] = Field(default_factory=list)
+    findings_count: int = 0
+    has_report: bool = False
+    has_report_pdf: bool = False
+    callback_registered: bool = False
+    poll_after_seconds: int = 0
+    status_url: str
+    findings_url: str
+    report_html_url: str
+    report_pdf_url: str
+    audit_url: str
+    created_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+
+class IntegrationManifest(BaseModel):
+    """Contrato autodescritivo para o lado da automação (n8n)."""
+
+    name: str
+    version: str
+    auth_header: str
+    auth_hint: str
+    endpoints: dict[str, str]
+    terminal_statuses: list[str]
+    example_scan_body: dict[str, Any]
+    example_callback_payload: dict[str, Any]
+    notes: list[str]
+
+
 class HealthOut(BaseModel):
     status: str
     mode: str
