@@ -9,6 +9,7 @@ from app.api.auth_routes import router as auth_router
 from app.api.integration_routes import router as integration_router
 from app.api.routes import router
 from app.config import get_settings
+from app.core.authz import validate_allowlist
 from app.core.orchestrator import PHASE_LABELS
 from app.db import init_db
 from app.logging_conf import configure_logging
@@ -22,6 +23,11 @@ logger = logging.getLogger("ethoscan")
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings = get_settings()
+    # Fail-fast: allowlist global inválida (ex.: um TLD) impede a API de subir.
+    try:
+        validate_allowlist(settings.allowlist_targets)
+    except ValueError as exc:
+        raise RuntimeError(f"Configuração inválida: {exc}") from exc
     init_db()
     if not settings.auth_enabled:
         if settings.ethoscan_mode != "local":

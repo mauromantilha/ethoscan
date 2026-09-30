@@ -69,6 +69,18 @@ polling do `status_url` respeitando `poll_after_seconds`.
 ETHOSCAN_SERVICE_KEYS=<chave-do-n8n>[,<outra>]
 ```
 
+**Limitar o que pode ser escaneado** (mesmo que a chave vaze) — a allowlist vale para a API e para
+o worker, na criação e na execução:
+
+```bash
+# .env da API **e** do worker (docker compose up -d api worker)
+ETHOSCAN_ALLOWLIST=lab.exemplo.com,10.10.0.0/24
+```
+
+Entradas precisam ser host FQDN, IP ou CIDR: um TLD/sufixo público (`com`, `co.uk`) na allowlist
+derruba a API no boot com `Configuração inválida: ... entradas inválidas` (fail-fast, de propósito).
+Vazio = sem restrição adicional além do escopo do engagement.
+
 ## Fluxo de integração (endpoints clássicos, verificado neste host)
 
 
@@ -260,20 +272,22 @@ docker compose -f docker-compose.yml -f docker-compose.remote.yml up -d
 - [ ] `ETHOSCAN_DISABLE_AUTH=false` (nunca exponha com auth desligada).
 - [ ] **TLS** ponta a ponta (proxy/túnel): sem ele a key trafega em claro.
 - [ ] Restrição por origem: IP allowlist (`ufw` / `remote_ip` no Caddy) ou Cloudflare Access.
+- [ ] `ETHOSCAN_ALLOWLIST` (CSV de hosts/IPs/CIDRs) para limitar globalmente **o que** pode ser
+      escaneado, mesmo que a chave vaze. Vazio = sem restrição extra.
+- [ ] Escopo: `validate_scope` recusa TLD/single-label (`com`, `io`) e sufixos públicos
+      (`co.uk`, `com.br`) além de alvos malformados; cada engagement exige RoE.
 - [ ] Rate limit no proxy — a API **não** tem rate limit próprio (protege contra força-bruta na key).
 - [ ] `WEB_BIND=127.0.0.1` (padrão): a UI embute a master key no JS, não publique sem necessidade.
 - [ ] Postgres/Redis **sem** porta pública (já é o padrão do compose).
 - [ ] Acompanhar `GET /api/audit` — toda execução fica registrada (`tool_ran` com `ok`/`exit_code`, `job_completed`).
-- [ ] Revisar o escopo: cada engagement exige `scope_targets` + `roe_acknowledged=true` e alvos
-      malformados são recusados (`validate_scope`), **mas TLD/single-label ainda passam** hoje
-      (`com`, `io`, `co.uk`) — não existe allowlist global por env (ver abaixo).
+- [ ] Revisar o escopo: cada engagement exige `scope_targets` + `roe_acknowledged=true`; alvos
+      malformados e TLD/single-label (`com`, `io`, `co.uk`) são recusados na criação (`validate_scope`)
+      e a `ETHOSCAN_ALLOWLIST` é revalidada também na execução (gate F0 do worker).
 
 ## Limitações conhecidas
 
 | Limitação | Mitigação hoje | Evolução possível |
 |---|---|---|
 | Sem rate limit na app | rate limit no Caddy/Cloudflare | middleware (ex.: slowapi) |
-| Sem allowlist global de alvos | key secreta + restrição de origem | portar o `ETHOSCAN_ALLOWLIST` |
-| Sem webhook de conclusão | polling de `/api/jobs/{id}` | endpoint de callback/notify |
-| Sessões em memória (12h) | usar a master key no n8n | mover sessões para o Redis |
+| Sem webhook de conclusão nos endpoints clássicos | use a API de integração (`callback_url`) ou polling | — |
 | 1 job por vez (single-node) | enfileirar e acompanhar | `docker compose up -d --scale worker=3` |

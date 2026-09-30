@@ -96,10 +96,8 @@ def test_scan_creates_engagement_and_job_and_status_tracks_progress(client):
 def test_scan_validations(client):
     assert _run_scan(client, roe_acknowledged=False)["response"].status_code == 403
     assert _run_scan(client, targets=["nao eh alvo!"])["response"].status_code == 400
-    # GAP CONHECIDO no main atual: validate_scope aceita TLD/single-label ("com", "io", "co.uk").
-    # Este assert registra o comportamento de hoje — se o hardening for aplicado, ele falha e
-    # serve de sinal para atualizar o teste (e o docs/remote-access.md).
-    assert _run_scan(client, targets=["com"])["response"].status_code == 200
+    # TLD/single-label virou inválido no hardening de escopo (ver test_scope_allowlist.py)
+    assert _run_scan(client, targets=["com"])["response"].status_code == 400
     assert _run_scan(client, targets=[])["response"].status_code == 422
     assert _run_scan(client, selected_tools=["tool-inexistente"])["response"].status_code == 400
     bad_callback = _run_scan(client, callback_url="ftp://host/hook")["response"]
@@ -142,6 +140,7 @@ def test_service_key_is_accepted(monkeypatch):
     settings = SimpleNamespace(
         ethoscan_api_key="master-key",
         ethoscan_service_keys="n8n-key, outra-key",
+        ethoscan_session_prefix="ethoscan:session:",
     )
     monkeypatch.setattr(security, "get_settings", lambda: settings)
     assert security.credential_accepted("master-key") is True

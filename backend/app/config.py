@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     ethoscan_queue_key: str = "ethoscan:jobs"
     ethoscan_cancel_prefix: str = "ethoscan:cancel:"
     ethoscan_callback_prefix: str = "ethoscan:callback:"
+    # Sessões de login (login local). No Redis elas sobrevivem a restart da API;
+    # sem Redis há fallback em memória do processo.
+    ethoscan_session_prefix: str = "ethoscan:session:"
     # Chaves de serviço extras (CSV) — ex.: uma dedicada por integração (n8n),
     # revogável sem trocar a master key nem o login local.
     ethoscan_service_keys: str = ""
@@ -45,6 +48,10 @@ class Settings(BaseSettings):
     # Logs — ETHOSCAN_LOG_FORMAT=json para logs estruturados (app/logging_conf.py)
     ethoscan_log_level: str = "INFO"
     ethoscan_log_format: str = "text"
+
+    # Allowlist global de alvos (CSV) — vazio = sem restrição adicional além do escopo
+    # do engagement. Ex.: ETHOSCAN_ALLOWLIST=lab.exemplo.com,10.10.0.0/24
+    ethoscan_allowlist: str = ""
 
     @property
     def artifacts_path(self) -> Path:
@@ -55,6 +62,11 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.ethoscan_cors_origins.split(",") if o.strip()]
+
+    @property
+    def allowlist_targets(self) -> list[str]:
+        """Allowlist global (CSV em ETHOSCAN_ALLOWLIST). Vazia = sem restrição extra."""
+        return [item.strip() for item in self.ethoscan_allowlist.split(",") if item.strip()]
 
     @property
     def local_user_configured(self) -> bool:

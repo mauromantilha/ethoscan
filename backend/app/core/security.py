@@ -8,10 +8,12 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
+import redis
 from fastapi import HTTPException, Security
 from fastapi.security import APIKeyHeader
 
 from app.config import get_settings
+from app.queue import get_redis
 
 API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
 
@@ -40,19 +42,55 @@ def verify_password(plain: str, password_hash: str) -> bool:
         return False
 
 
-def create_session_token(username: str, ttl_hours: int | None = None) -> tuple[str, datetime]:
+def _session_ttl_seconds(ttl_hours: int | None = None) -> int:
     settings = get_settings()
     hours = ttl_hours if ttl_hours is not None else max(1, settings.ethoscan_session_ttl_hours)
+    return int(hours * 3600)
+
+
+def _store_session(token: str, username: str, ttl_seconds: int) -> bool:
+    """Persiste a sessão no Redis (sobrevive a restart). False => fallback em memória."""
+    try:
+        client = get_redis()
+        client.setex(f"{get_settings().ethoscan_session_prefix}{token}", ttl_seconds, username)
+        return True
+    except redis.RedisError:
+        return False
+
+
+def _load_session(token: str) -> str | None:
+    try:
+        client = get_redis()
+        value = client.get(f"{get_settings().ethoscan_session_prefix}{token}")
+    except redis.RedisError:
+        return None
+    return str(value) if value else None
+
+
+def _drop_session(token: str) -> bool:
+    try:
+        client = get_redis()
+        return bool(client.delete(f"{get_settings().ethoscan_session_prefix}{token}"))
+    except redis.RedisError:
+        return False
+
+
+def create_session_token(username: str, ttl_hours: int | None = None) -> tuple[str, datetime]:
+    """Emite token de sessão: Redis quando disponível, senão memória do processo."""
+    ttl_seconds = _session_ttl_seconds(ttl_hours)
     token = secrets.token_urlsafe(32)
-    expires = _utcnow() + timedelta(hours=hours)
-    with _lock:
-        _sessions[token] = _Session(username=username, expires_at=expires)
+    expires = _utcnow() + timedelta(seconds=ttl_seconds)
+    if not _store_session(token, username, ttl_seconds):
+        with _lock:
+            _sessions[token] = _Session(username=username, expires_at=expires)
     return token, expires
 
 
 def revoke_session_token(token: str) -> bool:
+    value = token.strip()
+    dropped = _drop_session(value)
     with _lock:
-        return _sessions.pop(token.strip(), None) is not None
+        return _sessions.pop(value, None) is not None or dropped
 
 
 def clear_expired_sessions() -> None:
@@ -64,13 +102,18 @@ def clear_expired_sessions() -> None:
 
 
 def session_username(token: str) -> str | None:
+    value = token.strip()
+    username = _load_session(value)
+    if username:
+        return username
+    # fallback: memória do processo (Redis indisponível)
     clear_expired_sessions()
     with _lock:
-        session = _sessions.get(token.strip())
+        session = _sessions.get(value)
         if not session:
             return None
         if session.expires_at <= _utcnow():
-            del _sessions[token.strip()]
+            del _sessions[value]
             return None
         return session.username
 

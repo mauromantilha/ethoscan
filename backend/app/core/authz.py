@@ -11,6 +11,24 @@ _HOSTNAME_RE = re.compile(
     r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*\.?$"
 )
 
+# Um label só (ex.: "com", "io") é TLD/serviço local, não alvo de pentest.
+# "localhost" é liberado explicitamente para laboratório.
+_SINGLE_LABEL_ALLOWED = {"localhost"}
+
+# Denylist pragmática de sufixos públicos de dois níveis (não é a Public Suffix List):
+# impede que escopos/allowlist como "co.uk" liberem todos os domínios daquele sufixo.
+_PUBLIC_SUFFIX_DENYLIST = {
+    "co.uk", "org.uk", "me.uk", "ac.uk", "gov.uk", "net.uk", "sch.uk",
+    "com.br", "net.br", "org.br", "gov.br", "edu.br", "mil.br",
+    "com.au", "net.au", "org.au", "edu.au", "gov.au", "id.au",
+    "co.jp", "ne.jp", "or.jp", "ac.jp", "go.jp",
+    "co.nz", "net.nz", "org.nz", "govt.nz", "ac.nz",
+    "com.mx", "com.ar", "com.co", "com.pe", "com.ve", "com.ec",
+    "co.in", "net.in", "org.in", "gov.in",
+    "com.cn", "net.cn", "org.cn", "gov.cn",
+    "co.za", "co.kr", "com.sg", "com.hk", "com.tw", "com.tr", "com.ua", "co.il",
+}
+
 
 def normalize_target(raw: str) -> str:
     value = raw.strip()
@@ -43,8 +61,22 @@ def is_valid_target(raw: str) -> bool:
         pass
     if "://" in value:
         host = urlparse(value).hostname
-        return bool(host and (_HOSTNAME_RE.match(host) or _is_ip(host)))
-    return bool(_HOSTNAME_RE.match(value))
+        if not host:
+            return False
+        return _has_targetable_hostname(host) or _is_ip(host)
+    return _has_targetable_hostname(value)
+
+
+def _has_targetable_hostname(hostname: str) -> bool:
+    """Aceita FQDN com pelo menos dois labels; rejeita TLD e sufixos públicos."""
+    if not _HOSTNAME_RE.match(hostname):
+        return False
+    host = hostname.lower().rstrip(".")
+    if host in _SINGLE_LABEL_ALLOWED:
+        return True
+    if "." not in host:
+        return False
+    return host not in _PUBLIC_SUFFIX_DENYLIST
 
 
 def _is_ip(host: str) -> bool:
@@ -64,30 +96,70 @@ def assert_roe(acknowledged: bool) -> None:
 
 
 def assert_in_scope(target: str, scope: list[str]) -> None:
+    if not _is_covered(target, scope):
+        raise HTTPException(status_code=403, detail=f"Alvo fora do escopo allowlist: {target}")
+
+
+def validate_allowlist(entries: list[str]) -> list[str]:
+    """Valida/normaliza a allowlist global. Entrada inválida => erro explícito (fail-fast).
+
+    Evita que configurações como ``ETHOSCAN_ALLOWLIST=com`` ou ``co.uk`` autorizem um
+    TLD/sufixo público inteiro por casamento de sufixo.
+    """
+    cleaned = [item.strip() for item in entries if item and item.strip()]
+    invalid = [item for item in cleaned if not is_valid_target(item)]
+    if invalid:
+        raise ValueError(
+            f"ETHOSCAN_ALLOWLIST possui entradas inválidas (use host FQDN, IP ou CIDR): {invalid}"
+        )
+    return [normalize_target(item) for item in cleaned]
+
+
+def assert_in_allowlist(target: str, allowlist: list[str]) -> None:
+    """Allowlist global (ETHOSCAN_ALLOWLIST). Lista vazia => sem restrição adicional."""
+    if not allowlist:
+        return
+    if not _is_covered(target, allowlist):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Alvo não autorizado na allowlist global (ETHOSCAN_ALLOWLIST): {target}",
+        )
+
+
+def assert_targets_allowed(targets: list[str], allowlist: list[str]) -> None:
+    for target in targets:
+        assert_in_allowlist(target, allowlist)
+
+
+def _is_covered(target: str, scope: list[str]) -> bool:
+    """True se o alvo está coberto por entrada exata, CIDR ou subdomínio do escopo.
+
+    Entradas que não são alvo válido (ex.: um TLD como "com") são descartadas para que
+    não ampliem o escopo por casamento de sufixo.
+    """
     normalized = normalize_target(target)
-    scope_norm = [normalize_target(s) for s in scope]
+    scope_norm = [
+        normalize_target(item) for item in scope if item and is_valid_target(item)
+    ]
 
     if normalized in scope_norm:
-        return
+        return True
 
     # CIDR containment for IPs
     try:
         ip = ipaddress.ip_address(normalized)
+    except ValueError:
+        ip = None
+    if ip is not None:
         for item in scope_norm:
             try:
                 if ip in ipaddress.ip_network(item, strict=False):
-                    return
+                    return True
             except ValueError:
                 continue
-    except ValueError:
-        pass
 
     # subdomain of scoped domain
-    for item in scope_norm:
-        if normalized == item or normalized.endswith("." + item):
-            return
-
-    raise HTTPException(status_code=403, detail=f"Alvo fora do escopo allowlist: {target}")
+    return any(item and normalized.endswith("." + item) for item in scope_norm)
 
 
 def validate_scope(scope: list[str]) -> list[str]:

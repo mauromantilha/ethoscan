@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.adapters import all_adapters, tools_status
 from app.adapters.base import AdapterResult, RawFinding
 from app.config import get_settings
-from app.core.authz import assert_in_scope, assert_roe
+from app.core.authz import assert_in_allowlist, assert_in_scope, assert_roe
 from app.core.correlator import correlate
 from app.core.reports import write_html_report, write_pdf_report
 from app.models import AuditEvent, Engagement, Finding, Job, JobStatus, Severity
@@ -506,8 +506,11 @@ def _run_f0_gate(
     db.commit()
 
     assert_roe(engagement.roe_acknowledged)
+    allowlist = settings.allowlist_targets
     for target in engagement.scope_targets:
         assert_in_scope(target, engagement.scope_targets)
+        # revalida a allowlist global na execução (defesa em profundidade)
+        assert_in_allowlist(target, allowlist)
 
     required = selected or list(DEFAULT_PIPELINE_TOOLS)
     status = tools_status()
