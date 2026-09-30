@@ -13,6 +13,10 @@ Orquestrador local de **pentest ético** (CLI + API + dashboard + desktop + work
 
 > Perdido no fluxo de chamadas (API → Redis → worker → orchestrator → adapters)? Ver
 > [docs/architecture.md](docs/architecture.md) — diagramas de sequência e mapa de arquivos por camada.
+>
+> Retomando o projeto (agente ou humano)? Ver **[docs/handoff.md](docs/handoff.md)** — memória de estado
+> (o que está mergeado, decisões, armadilhas e pendências) e
+> [docs/remote-access.md](docs/remote-access.md) — deploy fora do localhost e integração com n8n.
 
 ## Ambientes de execução
 
