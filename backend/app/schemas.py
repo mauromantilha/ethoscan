@@ -72,6 +72,17 @@ class FindingOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AuditEventOut(BaseModel):
+    id: int
+    engagement_id: int | None
+    actor: str
+    action: str
+    detail: dict[str, Any]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class JobStartResponse(BaseModel):
     job: JobOut
     message: str
@@ -81,4 +92,6 @@ class HealthOut(BaseModel):
     status: str
     mode: str
     mock_allowed: bool
+    mock_forced: bool
+    worker_enabled: bool
     tools: dict[str, Any]

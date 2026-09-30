@@ -6,7 +6,8 @@ services:
       POSTGRES_PASSWORD: ethoscan
       POSTGRES_DB: ethoscan
     ports:
-      - "5432:5432"
+      # loopback do host: as portas são só para uso local (a rede interna é do compose)
+      - "127.0.0.1:5432:5432"
     volumes:
       - ethoscan_pg:/var/lib/postgresql/data
     healthcheck:
@@ -16,9 +17,11 @@ services:
       retries: 10
 
   redis:
+    # Reservado para um broker de fila externo; o worker atual consome jobs do banco
+    # (app/core/worker.py) e não depende deste serviço.
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -37,30 +40,36 @@ services:
       ETHOSCAN_MODE: local
       ETHOSCAN_ALLOW_MOCK: "true"
       ETHOSCAN_ARTIFACTS_DIR: /app/artifacts
+      # Sprint 1: /api/* exige X-API-Key; sem a chave a API responde 503 (fail-closed)
+      ETHOSCAN_API_KEY: ${ETHOSCAN_API_KEY:-}
+      ETHOSCAN_CORS_ORIGINS: "http://localhost:3000"
+      ETHOSCAN_ALLOWLIST: ${ETHOSCAN_ALLOWLIST:-}
+      # Sprint 2: worker embutido (poller do banco) executa os jobs `pending`
+      ETHOSCAN_WORKER_ENABLED: "true"
+      ETHOSCAN_WORKER_CONCURRENCY: "1"
     ports:
-      - "8000:8000"
+      # expõe apenas no loopback do host (a comunicação interna usa a rede do compose)
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./artifacts:/app/artifacts
-      - ./backend:/app
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    # sem --reload: reload mataria jobs em execução. Rebuild para aplicar mudanças de código.
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
 
   web:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
+      args:
+        # NEXT_PUBLIC_* são embutidos no bundle no build: mudar exige `docker compose build web`
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+        NEXT_PUBLIC_API_KEY: ${ETHOSCAN_API_KEY:-}
     ports:
-      - "3000:3000"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-      - /app/.next
+      - "127.0.0.1:3000:3000"
     depends_on:
       - api
 

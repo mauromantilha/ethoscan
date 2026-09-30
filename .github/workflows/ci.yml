@@ -1,0 +1,69 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependências (dev)
+        run: pip install -r backend/requirements-dev.txt
+
+      - name: Compilar (sintaxe, inclui migrations)
+        run: >-
+          python -m compileall -q
+          backend/app backend/cli.py backend/scripts backend/migrations
+
+      - name: Lint (ruff)
+        working-directory: backend
+        run: ruff check .
+
+      - name: Tipos (mypy)
+        working-directory: backend
+        run: mypy
+
+      - name: Testes (pytest)
+        working-directory: backend
+        run: pytest --cov=app --cov-report=term-missing:skip-covered
+
+      - name: Smoke E2E (auth, worker, cancel, tool_error, relatório, audit)
+        working-directory: backend
+        # o próprio script configura um banco/artefatos temporários e força mock
+        run: python scripts/smoke_e2e.py
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_API_KEY: ci-smoke-key
+
+      - name: npm audit (dependências de produção)
+        run: npm audit --omit=dev --audit-level=high

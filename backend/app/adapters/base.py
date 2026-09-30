@@ -38,6 +38,13 @@ class AdapterResult:
     stderr: str = ""
     findings: list[RawFinding] = field(default_factory=list)
     artifact_path: str | None = None
+    exit_code: int = 0
+    error: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        """False quando a tool falhou (exit != 0, timeout ou exceção)."""
+        return self.error is None and self.exit_code == 0
 
 
 class BaseAdapter(ABC):
@@ -49,12 +56,18 @@ class BaseAdapter(ABC):
 
     def run(self, target: str, job_dir: Path, intensity: str = "safe") -> AdapterResult:
         settings = get_settings()
-        if self.available():
-            return self._run_real(target, job_dir, intensity)
-        if settings.ethoscan_allow_mock:
-            return self._run_mock(target, job_dir, intensity)
-        raise RuntimeError(
-            f"Ferramenta '{self.binary}' não encontrada e ETHOSCAN_ALLOW_MOCK=false"
+        try:
+            if not settings.ethoscan_force_mock and self.available():
+                return self._run_real(target, job_dir, intensity)
+            if settings.ethoscan_allow_mock:
+                return self._run_mock(target, job_dir, intensity)
+        except subprocess.TimeoutExpired as exc:
+            # Timeout não deve derrubar o pipeline: vira resultado falho isolado.
+            return self._failure(f"timeout após {exc.timeout}s ao executar {self.binary}")
+        except OSError as exc:
+            return self._failure(f"{type(exc).__name__}: {exc}")
+        return self._failure(
+            f"ferramenta '{self.binary}' não encontrada e ETHOSCAN_ALLOW_MOCK=false"
         )
 
     @abstractmethod
@@ -65,7 +78,17 @@ class BaseAdapter(ABC):
     def _run_mock(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
         raise NotImplementedError
 
+    def _failure(self, error: str) -> AdapterResult:
+        return AdapterResult(
+            tool=self.name,
+            mocked=False,
+            command=[self.binary],
+            exit_code=-1,
+            error=error,
+        )
+
     def _exec(self, command: list[str], timeout: int = 120) -> tuple[str, str, int]:
+        """Executa e devolve (stdout, stderr, exit_code) — sem levantar em exit != 0."""
         proc = subprocess.run(
             command,
             capture_output=True,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.models import Engagement, Finding, Job
@@ -11,13 +11,25 @@ def write_html_report(
     job: Job,
     findings: list[Finding],
     out_dir: Path,
+    new_findings: int | None = None,
+    mock_used: bool = False,
 ) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"report-job-{job.id}.html"
     rows = "\n".join(
         f"<tr><td>{f.severity.value}</td><td>{_esc(f.title)}</td><td>{_esc(f.target)}</td>"
-        f"<td>{_esc(f.tool)}</td><td>{_esc(f.description)}</td></tr>"
+        f"<td>{_esc(f.tool)}</td><td>{f.job_id if f.job_id is not None else '-'}</td>"
+        f"<td>{_esc(f.category)}</td><td>{_esc(f.description)}</td></tr>"
         for f in findings
+    )
+    new_line = (
+        f"<div>Novos nesta execução: {new_findings}</div>" if new_findings is not None else ""
+    )
+    mock_banner = (
+        '<p class="warn">⚠ Execução em modo MOCK: ferramentas ausentes no host — '
+        "os achados abaixo NÃO vieram de varredura real.</p>"
+        if mock_used
+        else ""
     )
     html = f"""<!DOCTYPE html>
 <html lang="pt-BR">
@@ -29,24 +41,39 @@ def write_html_report(
     h1 {{ letter-spacing: -0.02em; }}
     .meta {{ color: #57534e; margin-bottom: 1.5rem; }}
     table {{ border-collapse: collapse; width: 100%; background: #fff; }}
-    th, td {{ border: 1px solid #d6d3d1; padding: 0.6rem 0.75rem; text-align: left; vertical-align: top; }}
+    th, td {{
+      border: 1px solid #d6d3d1; padding: 0.6rem 0.75rem;
+      text-align: left; vertical-align: top;
+    }}
     th {{ background: #1c1917; color: #fafaf9; }}
-    .badge {{ display: inline-block; padding: 0.15rem 0.5rem; background: #0f766e; color: white; border-radius: 999px; font-size: 0.8rem; }}
+    .badge {{
+      display: inline-block; padding: 0.15rem 0.5rem; background: #0f766e;
+      color: white; border-radius: 999px; font-size: 0.8rem;
+    }}
+    .warn {{
+      background: #fef3c7; border: 1px solid #d97706; color: #7c2d12;
+      padding: 0.6rem 0.8rem; border-radius: 8px; font-weight: 600;
+    }}
   </style>
 </head>
 <body>
   <p class="badge">Ethoscan</p>
   <h1>{_esc(engagement.name)}</h1>
+  {mock_banner}
   <div class="meta">
     <div>Job #{job.id} — {job.status.value} — fase {job.phase}</div>
     <div>Escopo: {_esc(", ".join(engagement.scope_targets))}</div>
-    <div>Gerado em {datetime.now(timezone.utc).isoformat()}</div>
+    {new_line}
+    <div>Gerado em {datetime.now(UTC).isoformat()}</div>
   </div>
-  <h2>Achados ({len(findings)})</h2>
+  <h2>Achados do engagement ({len(findings)})</h2>
   <table>
-    <thead><tr><th>Severidade</th><th>Título</th><th>Alvo</th><th>Tool</th><th>Descrição</th></tr></thead>
+    <thead><tr>
+      <th>Severidade</th><th>Título</th><th>Alvo</th><th>Tool</th><th>Job</th><th>Categoria</th>
+      <th>Descrição</th>
+    </tr></thead>
     <tbody>
-      {rows or '<tr><td colspan="5">Nenhum achado.</td></tr>'}
+      {rows or '<tr><td colspan="7">Nenhum achado.</td></tr>'}
     </tbody>
   </table>
 </body>

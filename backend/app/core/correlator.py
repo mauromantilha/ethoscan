@@ -3,7 +3,6 @@ from __future__ import annotations
 from app.adapters.base import RawFinding
 from app.models import Severity
 
-
 _RANK = {
     Severity.info: 1,
     Severity.low: 2,
@@ -21,5 +20,4 @@ def correlate(findings: list[RawFinding]) -> list[RawFinding]:
         current = best.get(key)
         if current is None or _RANK[item.severity] > _RANK[current.severity]:
             best[key] = item
-    ordered = sorted(best.values(), key=lambda f: (-_RANK[f.severity], f.title))
-    return ordered
+    return sorted(best.values(), key=lambda f: (-_RANK[f.severity], f.title))

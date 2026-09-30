@@ -4,6 +4,11 @@ __pycache__/
 .venv/
 venv/
 .env
+.env.local
+.env*.local
+*.tsbuildinfo
+# metadados do Windows/WSL (Zone.Identifier)
+*:Zone.Identifier
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

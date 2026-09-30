@@ -9,13 +9,13 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db import Base
 
 
-class Intensity(str, enum.Enum):
+class Intensity(enum.StrEnum):
     safe = "safe"
     standard = "standard"
     aggressive = "aggressive"
 
 
-class JobStatus(str, enum.Enum):
+class JobStatus(enum.StrEnum):
     pending = "pending"
     running = "running"
     completed = "completed"
@@ -23,7 +23,7 @@ class JobStatus(str, enum.Enum):
     cancelled = "cancelled"
 
 
-class Severity(str, enum.Enum):
+class Severity(enum.StrEnum):
     info = "info"
     low = "low"
     medium = "medium"
@@ -47,8 +47,12 @@ class Engagement(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    jobs: Mapped[list[Job]] = relationship(back_populates="engagement", cascade="all, delete-orphan")
-    findings: Mapped[list[Finding]] = relationship(back_populates="engagement", cascade="all, delete-orphan")
+    jobs: Mapped[list[Job]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan"
+    )
+    findings: Mapped[list[Finding]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan"
+    )
     audit_events: Mapped[list[AuditEvent]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan"
     )
@@ -70,7 +74,9 @@ class Job(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     engagement: Mapped[Engagement] = relationship(back_populates="jobs")
-    findings: Mapped[list[Finding]] = relationship(back_populates="job", cascade="all, delete-orphan")
+    findings: Mapped[list[Finding]] = relationship(
+        back_populates="job", cascade="all, delete-orphan"
+    )
 
 
 class Finding(Base):

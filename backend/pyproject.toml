@@ -1,0 +1,41 @@
+[project]
+name = "ethoscan-backend"
+version = "0.1.0"
+description = "Orquestrador local de pentest ético (backend)"
+# pydantic-core/psycopg pinados não têm wheel para 3.14 (Sprint 3 só documenta o limite)
+requires-python = ">=3.12,<3.14"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [".venv", "migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B", "SIM", "C4", "RET", "ARG", "PTH"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI/Typer: `Depends(...)`/`Query(...)`/`Option(...)` em defaults é o padrão documentado
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Header",
+    "typer.Option",
+    "typer.Argument",
+]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+check_untyped_defs = true
+files = ["app", "cli.py", "scripts", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+filterwarnings = ["error::DeprecationWarning:app.*"]
+
+[tool.ruff.lint.per-file-ignores]
+# fixtures do pytest são injetadas por nome: "argumento não usado" é esperado em testes
+"tests/**" = ["ARG001", "ARG002"]

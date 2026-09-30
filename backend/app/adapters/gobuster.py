@@ -30,7 +30,7 @@ class GobusterAdapter(BaseAdapter):
         ]
         stdout, stderr, code = self._exec(cmd, timeout=300)
         content = out_file.read_text() if out_file.exists() else stdout
-        findings = self._parse(content, target)
+        findings = self._parse(content, target) if code == 0 else []
         return AdapterResult(
             tool=self.name,
             mocked=False,
@@ -39,9 +39,10 @@ class GobusterAdapter(BaseAdapter):
             stderr=stderr,
             findings=findings,
             artifact_path=str(out_file) if out_file.exists() else None,
+            exit_code=code,
         )
 
-    def _run_mock(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
+    def _run_mock(self, target: str, job_dir: Path, _intensity: str) -> AdapterResult:
         content = (
             f"http://{target}/admin (Status: 301)\n"
             f"http://{target}/login (Status: 200)\n"
@@ -64,7 +65,8 @@ class GobusterAdapter(BaseAdapter):
             line = line.strip()
             if not line or "Status:" not in line:
                 continue
-            sev = Severity.medium if any(x in line.lower() for x in [".git", "backup", "admin"]) else Severity.info
+            sensitive = any(x in line.lower() for x in [".git", "backup", "admin"])
+            sev = Severity.medium if sensitive else Severity.info
             findings.append(
                 RawFinding(
                     title=f"Caminho descoberto: {line.split()[0]}",

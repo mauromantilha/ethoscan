@@ -6,7 +6,6 @@ from pathlib import Path
 from app.adapters.base import AdapterResult, BaseAdapter, RawFinding
 from app.models import Severity
 
-
 _SEVERITY_MAP = {
     "info": Severity.info,
     "low": Severity.low,
@@ -38,9 +37,9 @@ class NucleiAdapter(BaseAdapter):
         ]
         if intensity == "safe":
             cmd.extend(["-rate-limit", "20"])
-        stdout, stderr, _ = self._exec(cmd, timeout=600)
+        stdout, stderr, code = self._exec(cmd, timeout=600)
         content = out_file.read_text() if out_file.exists() else stdout
-        findings = self._parse_jsonl(content, target)
+        findings = self._parse_jsonl(content, target) if code == 0 else []
         return AdapterResult(
             tool=self.name,
             mocked=False,
@@ -49,9 +48,10 @@ class NucleiAdapter(BaseAdapter):
             stderr=stderr,
             findings=findings,
             artifact_path=str(out_file) if out_file.exists() else None,
+            exit_code=code,
         )
 
-    def _run_mock(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
+    def _run_mock(self, target: str, job_dir: Path, _intensity: str) -> AdapterResult:
         rows = [
             {
                 "info": {

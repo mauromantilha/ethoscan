@@ -31,6 +31,36 @@ type Finding = {
 };
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  if (API_KEY) headers.set("X-API-Key", API_KEY);
+  const res = await fetch(`${API}${path}`, { ...init, headers });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const body = await res.json();
+      detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
+    } catch {
+      /* corpo não-JSON */
+    }
+    if (res.status === 401) {
+      throw new Error("401 — API key inválida. Defina NEXT_PUBLIC_API_KEY igual à do backend.");
+    }
+    throw new Error(`${res.status} — ${detail}`);
+  }
+  return res;
+}
+
+async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await apiFetch(path, init);
+  return (await res.json()) as T;
+}
 
 export default function HomePage() {
   const [engagements, setEngagements] = useState<Engagement[]>([]);
@@ -47,16 +77,16 @@ export default function HomePage() {
   const refresh = useCallback(async () => {
     try {
       const [e, j, f] = await Promise.all([
-        fetch(`${API}/api/engagements`).then((r) => r.json()),
-        fetch(`${API}/api/jobs`).then((r) => r.json()),
-        fetch(`${API}/api/findings`).then((r) => r.json()),
+        apiJson<Engagement[]>("/api/engagements"),
+        apiJson<Job[]>("/api/jobs"),
+        apiJson<Finding[]>("/api/findings?limit=200"),
       ]);
       setEngagements(e);
       setJobs(j);
       setFindings(f);
-      setStatus("API conectada");
-    } catch {
-      setStatus("API indisponível — suba o backend em :8000");
+      setStatus(API_KEY ? "API conectada" : "API conectada — defina NEXT_PUBLIC_API_KEY");
+    } catch (err) {
+      setStatus(`API indisponível — ${errorText(err)}`);
     }
   }, []);
 
@@ -78,7 +108,7 @@ export default function HomePage() {
         .split(/[\n,]/)
         .map((t) => t.trim())
         .filter(Boolean);
-      const res = await fetch(`${API}/api/engagements`, {
+      const res = await apiFetch("/api/engagements", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -88,13 +118,12 @@ export default function HomePage() {
           roe_acknowledged: true,
         }),
       });
-      if (!res.ok) throw new Error(await res.text());
-      const eng = await res.json();
+      const eng = (await res.json()) as Engagement;
       setSelected(eng.id);
       setStatus(`Engagement #${eng.id} criado`);
       await refresh();
     } catch (err) {
-      setStatus(String(err));
+      setStatus(errorText(err));
     } finally {
       setBusy(false);
     }
@@ -103,18 +132,42 @@ export default function HomePage() {
   async function startJob(engagementId: number) {
     setBusy(true);
     try {
-      const res = await fetch(`${API}/api/engagements/${engagementId}/jobs`, {
-        method: "POST",
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
+      const data = await apiJson<{ job: Job; message: string }>(
+        `/api/engagements/${engagementId}/jobs`,
+        { method: "POST" },
+      );
       setSelected(engagementId);
-      setStatus(`Job #${data.job.id} iniciado`);
+      setStatus(`Job #${data.job.id} enfileirado`);
       await refresh();
     } catch (err) {
-      setStatus(String(err));
+      setStatus(errorText(err));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function cancelJob(jobId: number) {
+    setBusy(true);
+    try {
+      await apiJson<Job>(`/api/jobs/${jobId}/cancel`, { method: "POST" });
+      setStatus(`Cancelamento solicitado para o job #${jobId}`);
+      await refresh();
+    } catch (err) {
+      setStatus(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function openReport(jobId: number) {
+    try {
+      // o relatório exige a API key: busca autenticada + blob no navegador
+      const res = await apiFetch(`/api/jobs/${jobId}/report`);
+      const url = URL.createObjectURL(new Blob([await res.text()], { type: "text/html" }));
+      window.open(url, "_blank", "noopener,noreferrer");
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err) {
+      setStatus(errorText(err));
     }
   }
 
@@ -195,7 +248,7 @@ export default function HomePage() {
                 </div>
                 <div className="row" style={{ marginTop: "0.65rem" }}>
                   <button className="btn" disabled={busy} onClick={() => startJob(e.id)}>
-                    Rodar pipeline
+                    Enfileirar pipeline
                   </button>
                   <button className="btn secondary" onClick={() => setSelected(e.id)}>
                     Ver achados
@@ -219,7 +272,18 @@ export default function HomePage() {
                 {j.status} · {j.phase} · {j.progress}%
                 {j.current_tool ? ` · ${j.current_tool}` : ""}
                 {j.error ? ` · erro: ${j.error}` : ""}
-                {j.report_path ? ` · report: ${j.report_path}` : ""}
+              </div>
+              <div className="row" style={{ marginTop: "0.65rem" }}>
+                {j.report_path && (
+                  <button className="btn secondary" onClick={() => openReport(j.id)}>
+                    Ver relatório
+                  </button>
+                )}
+                {(j.status === "pending" || j.status === "running") && (
+                  <button className="btn secondary" disabled={busy} onClick={() => cancelJob(j.id)}>
+                    Cancelar
+                  </button>
+                )}
               </div>
             </div>
           ))}

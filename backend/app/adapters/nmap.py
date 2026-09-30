@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 
@@ -13,7 +12,7 @@ class NmapAdapter(BaseAdapter):
     binary = "nmap"
 
     def _run_real(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
-        out_file = job_dir / "nmap.json"
+        xml_file = job_dir / "nmap.xml"
         if intensity == "safe":
             args = ["-Pn", "-sV", "--top-ports", "100", "-T3"]
         elif intensity == "standard":
@@ -21,23 +20,23 @@ class NmapAdapter(BaseAdapter):
         else:
             args = ["-Pn", "-sV", "-sC", "-p-", "-T4"]
 
-        cmd = ["nmap", *args, "-oX", str(out_file.with_suffix(".xml")), target]
-        # Prefer grepable-ish summary via normal output as well
-        cmd_text = ["nmap", *args, target]
-        stdout, stderr, _ = self._exec(cmd_text, timeout=300)
-        findings = self._parse_text(stdout, target)
+        # -oX grava o XML e mantém a saída normal no stdout (uma única execução)
+        cmd = ["nmap", *args, "-oX", str(xml_file), target]
+        stdout, stderr, code = self._exec(cmd, timeout=300)
+        findings = self._parse_text(stdout, target) if code == 0 else []
         (job_dir / "nmap.txt").write_text(stdout)
         return AdapterResult(
             tool=self.name,
             mocked=False,
-            command=cmd_text,
+            command=cmd,
             stdout=stdout,
             stderr=stderr,
             findings=findings,
             artifact_path=str(job_dir / "nmap.txt"),
+            exit_code=code,
         )
 
-    def _run_mock(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
+    def _run_mock(self, target: str, job_dir: Path, _intensity: str) -> AdapterResult:
         stdout = (
             f"Nmap mock scan report for {target}\n"
             "PORT     STATE SERVICE VERSION\n"
@@ -83,7 +82,10 @@ class NmapAdapter(BaseAdapter):
             m = re.match(r"^(\d+)/(tcp|udp)\s+open\s+(\S+)(?:\s+(.*))?$", line.strip())
             if not m:
                 continue
-            port, proto, service, version = m.group(1), m.group(2), m.group(3), (m.group(4) or "").strip()
+            port = m.group(1)
+            proto = m.group(2)
+            service = m.group(3)
+            version = (m.group(4) or "").strip()
             findings.append(
                 RawFinding(
                     title=f"Porta {port}/{proto} aberta ({service})",
