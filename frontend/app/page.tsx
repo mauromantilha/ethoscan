@@ -2,6 +2,8 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
+import ThemeToggle from "./components/ThemeToggle";
+
 type ToolInfo = {
   binary: string;
   available: boolean;
@@ -29,6 +31,7 @@ type Health = {
   mock_allowed: boolean;
   auth_enabled: boolean;
   redis_ok: boolean;
+  worker_ok?: boolean;
   worker_hint: string;
   tools: Record<string, ToolInfo>;
   phases: Record<string, string>;
@@ -61,6 +64,10 @@ type Finding = {
   target: string;
   tool: string;
   description: string;
+  evidence?: string | null;
+  remediation?: string | null;
+  cve?: string | null;
+  cwe?: string | null;
   mocked?: boolean;
 };
 
@@ -89,10 +96,13 @@ export default function HomePage() {
   const [busy, setBusy] = useState(false);
   const [catalog, setCatalog] = useState<CatalogTool[]>([]);
   const [selectedTools, setSelectedTools] = useState<string[]>([]);
+  const [severityFilter, setSeverityFilter] = useState("all");
+  const [findingQuery, setFindingQuery] = useState("");
 
   const refresh = useCallback(async () => {
     try {
       const healthRes = await fetch(`${API}/health`);
+      if (!healthRes.ok) throw new Error(`health ${healthRes.status}`);
       const h = await healthRes.json();
       setHealth(h);
 
@@ -103,6 +113,8 @@ export default function HomePage() {
         fetch(`${API}/api/tools`, { headers: headers() }),
       ]);
       if (!eRes.ok) throw new Error(`engagements ${eRes.status}`);
+      if (!jRes.ok) throw new Error(`jobs ${jRes.status}`);
+      if (!fRes.ok) throw new Error(`findings ${fRes.status}`);
       setEngagements(await eRes.json());
       setJobs(await jRes.json());
       setFindings(await fRes.json());
@@ -112,7 +124,9 @@ export default function HomePage() {
       }
       setStatus(
         h.redis_ok
-          ? `API ok · Redis ok · auth ${h.auth_enabled ? "on" : "off"} · mock ${h.mock_allowed ? "on" : "off"}`
+          ? `API ok · Redis ok · worker ${h.worker_ok ? "ok" : "DOWN"} · auth ${
+              h.auth_enabled ? "on" : "off"
+            } · mock ${h.mock_allowed ? "on" : "off"}`
           : `API ok · Redis DOWN — ${h.worker_hint}`,
       );
     } catch (err) {
@@ -146,7 +160,7 @@ export default function HomePage() {
           scope_targets,
           intensity,
           roe_acknowledged: true,
-          selected_tools: selectedTools,
+          selected_tools: selectedTools.length ? selectedTools : null,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -162,6 +176,22 @@ export default function HomePage() {
   }
 
   async function startJob(engagementId: number) {
+    const engagement = engagements.find((item) => item.id === engagementId);
+    const toolsLabel = selectedTools.length
+      ? selectedTools.join(", ")
+      : "pipeline clássico";
+    const summary = [
+      "Iniciar scan?",
+      "",
+      `Engagement: #${engagementId} ${engagement?.name || ""}`.trim(),
+      `Alvos: ${(engagement?.scope_targets || []).join(", ") || "(ver escopo)"}`,
+      `Intensidade: ${engagement?.intensity || intensity}`,
+      `Tools: ${toolsLabel}`,
+      "",
+      "Confirme que existe autorização/RoE para estes alvos.",
+    ].join("\n");
+    if (!window.confirm(summary)) return;
+
     setBusy(true);
     try {
       const res = await fetch(`${API}/api/engagements/${engagementId}/jobs`, {
@@ -184,6 +214,9 @@ export default function HomePage() {
   }
 
   async function cancelJob(jobId: number) {
+    if (!window.confirm(`Cancelar o job #${jobId}? A tool atual pode terminar antes do próximo checkpoint.`)) {
+      return;
+    }
     setBusy(true);
     try {
       const res = await fetch(`${API}/api/jobs/${jobId}/cancel`, {
@@ -238,10 +271,18 @@ export default function HomePage() {
     );
   }
 
-  const filteredFindings = useMemo(
-    () => findings.filter((f) => (selected ? f.engagement_id === selected : true)),
-    [findings, selected],
-  );
+  const filteredFindings = useMemo(() => {
+    const query = findingQuery.trim().toLowerCase();
+    return findings.filter((finding) => {
+      if (selected && finding.engagement_id !== selected) return false;
+      if (severityFilter !== "all" && finding.severity !== severityFilter) return false;
+      if (!query) return true;
+      return [finding.title, finding.target, finding.tool, finding.description]
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+    });
+  }, [findings, selected, severityFilter, findingQuery]);
 
   const toolEntries = health ? Object.entries(health.tools || {}) : [];
 
@@ -251,12 +292,24 @@ export default function HomePage() {
         rel="stylesheet"
         href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;650&display=swap"
       />
-      <h1 className="brand">Ethoscan</h1>
-      <p className="tagline">
-        Orquestrador local de pentest ético. Escopo allowlist, RoE obrigatório, pipeline F0–F6 e
-        relatório. Intensidade recomendada: <strong>safe</strong>. Scans reais no Kali Linux; mock
-        quando as tools não estiverem no PATH.
-      </p>
+      <header className="hero">
+        <div className="hero-top">
+          <h1 className="brand">Ethoscan</h1>
+          <ThemeToggle />
+        </div>
+        <p className="tagline">
+          Orquestrador local de pentest ético. Escopo allowlist, RoE obrigatório, pipeline F0–F6 e
+          relatório. Intensidade recomendada: <strong>safe</strong>. Scans reais no Kali Linux;
+          mock quando as tools não estiverem no PATH.
+        </p>
+      </header>
+
+      {health?.mock_allowed && (
+        <div className="mock-banner" role="status">
+          <strong>Modo mock ativo:</strong> ferramentas em falta podem produzir achados simulados.
+          Confirme o badge <strong>MOCK</strong> antes de usar um relatório como evidência real.
+        </div>
+      )}
 
       <details className="panel" style={{ marginBottom: "1.25rem" }}>
         <summary style={{ cursor: "pointer", color: "var(--accent)", fontWeight: 600 }}>
@@ -451,8 +504,31 @@ export default function HomePage() {
 
       <section className="panel" style={{ marginTop: "1.25rem" }}>
         <h2>Achados {selected ? `(engagement #${selected})` : ""}</h2>
+        <div className="row filters">
+          <input
+            aria-label="Filtrar achados"
+            placeholder="Filtrar por título, alvo, tool…"
+            value={findingQuery}
+            onChange={(e) => setFindingQuery(e.target.value)}
+          />
+          <select
+            aria-label="Filtrar por severidade"
+            value={severityFilter}
+            onChange={(e) => setSeverityFilter(e.target.value)}
+          >
+            <option value="all">Todas as severidades</option>
+            <option value="critical">critical</option>
+            <option value="high">high</option>
+            <option value="medium">medium</option>
+            <option value="low">low</option>
+            <option value="info">info</option>
+          </select>
+        </div>
+        <p className="meta">
+          {filteredFindings.length} achado(s){selected ? ` no engagement #${selected}` : ""}
+        </p>
         <div className="list">
-          {filteredFindings.length === 0 && <p className="meta">Sem achados ainda.</p>}
+          {filteredFindings.length === 0 && <p className="meta">Sem achados para este filtro.</p>}
           {filteredFindings.slice(0, 40).map((f) => (
             <div key={f.id} className="item">
               <strong>
@@ -464,8 +540,17 @@ export default function HomePage() {
                 <span className={`mode-badge ${f.mocked ? "mock" : "real"}`}>
                   {f.mocked ? "mock" : "real"}
                 </span>
+                {f.cve ? ` · ${f.cve}` : ""}
+                {f.cwe ? ` · ${f.cwe}` : ""}
               </div>
               <div className="meta">{f.description}</div>
+              {(f.evidence || f.remediation) && (
+                <details className="finding-details">
+                  <summary>Evidência / remediação</summary>
+                  {f.evidence && <pre>{f.evidence}</pre>}
+                  {f.remediation && <p>{f.remediation}</p>}
+                </details>
+              )}
             </div>
           ))}
         </div>

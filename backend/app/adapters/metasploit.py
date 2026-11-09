@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 
 from app.adapters.base import AdapterResult, BaseAdapter, RawFinding
+from app.core.targets import target_host
 from app.models import Severity
 
 # Apenas módulos auxiliary/scanner — NUNCA exploit/* nem payloads.
@@ -20,7 +21,7 @@ class MetasploitAdapter(BaseAdapter):
         return shutil.which("msfconsole") is not None
 
     def _run_real(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
-        host = target.split("://")[-1].split("/")[0].split(":")[0]
+        host = target_host(target)
         # Portas top limitadas — sem exploit, sem payload, sem sessions.
         if intensity == "safe":
             ports, threads, timeout = "22,80,443", "4", 120
@@ -63,7 +64,7 @@ class MetasploitAdapter(BaseAdapter):
         )
 
     def _run_mock(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
-        host = target.split("://")[-1].split("/")[0].split(":")[0]
+        host = target_host(target)
         stdout = (
             f"[*] {host}:80 - TCP OPEN (mock aux/scanner)\n"
             f"[*] {host}:443 - TCP OPEN (mock aux/scanner)\n"

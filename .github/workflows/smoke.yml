@@ -4,8 +4,16 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  smoke:
+  backend:
+    name: Backend (lint + testes)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -15,11 +23,80 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
       - name: Install
-        run: pip install -r requirements.txt
-      - name: Testes (mock)
+        run: pip install -r requirements-dev.txt
+      - name: Ruff
+        run: ruff check .
+      - name: Testes (mock + cobertura)
         env:
           ETHOSCAN_DISABLE_AUTH: "true"
           ETHOSCAN_ALLOW_MOCK: "true"
           ETHOSCAN_MODE: local
-        run: pytest -q
+        run: pytest -q --cov=app --cov-report=term --cov-fail-under=70
+      - name: Dependency audit (não bloqueante)
+        continue-on-error: true
+        run: pip-audit -r requirements.txt
+
+  frontend:
+    name: Frontend (build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: mkdir -p public && npm run build
+      - name: Dependency audit (não bloqueante)
+        continue-on-error: true
+        run: npm audit --audit-level=high
+
+  desktop:
+    name: Desktop (sintaxe + package)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Syntax check
+        run: |
+          node --check main.js
+          node --check preload.js
+          node --check renderer/app.js
+      - name: Build Linux packages
+        run: npm run dist:linux
+      - name: Inspect Debian package
+        run: |
+          dpkg-deb -f release/*.deb Package
+          dpkg-deb -f release/*.deb Depends | grep -q 'libgtk-3-0'
+          test -x release/linux-unpacked/ethoscan
+      - name: Dependency audit (não bloqueante)
+        continue-on-error: true
+        run: npm audit --audit-level=high
+
+  scripts:
+    name: Shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: ShellCheck
+        run: shellcheck scripts/*.sh

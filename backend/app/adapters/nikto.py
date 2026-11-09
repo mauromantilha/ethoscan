@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.adapters.base import AdapterResult, BaseAdapter, RawFinding
+from app.core.targets import target_url
 from app.models import Severity
 
 
@@ -11,7 +12,7 @@ class NiktoAdapter(BaseAdapter):
     binary = "nikto"
 
     def _run_real(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
-        host = target if "://" in target else f"http://{target}"
+        host = target_url(target)
         out_file = job_dir / "nikto.txt"
         if intensity == "safe":
             maxtime, timeout = "60s", 90

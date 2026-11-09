@@ -48,7 +48,7 @@ def test_session_goes_to_redis_with_configured_ttl(fake_redis: FakeRedis) -> Non
         token, expires = security.create_session_token("mauro")
         assert security.session_username(token) == "mauro"
 
-    key = f"ethoscan:session:{token}"
+    key = f"ethoscan:session:1:{token}"
     assert fake_redis.store[key] == "mauro"
     assert fake_redis.ttls[key] == 12 * 3600  # ETHOSCAN_SESSION_TTL_HOURS default
     assert security._sessions == {}  # nada no fallback em memória

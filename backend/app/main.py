@@ -1,5 +1,5 @@
-from contextlib import asynccontextmanager
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,16 +8,65 @@ from app.adapters import tools_status
 from app.api.auth_routes import router as auth_router
 from app.api.integration_routes import router as integration_router
 from app.api.routes import router
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.core.authz import validate_allowlist
 from app.core.orchestrator import PHASE_LABELS
 from app.db import init_db
 from app.logging_conf import configure_logging
-from app.queue import ping_redis
+from app.queue import ping_redis, worker_heartbeat_alive
 from app.schemas import HealthOut
 
 configure_logging()
 logger = logging.getLogger("ethoscan")
+
+
+def _validate_auth_settings(settings: Settings) -> None:
+    """Fail-closed: fora de mode=local, a API não sobe sem auth válida.
+
+    Em local, auth desligada é permitida com aviso explícito (lab). Credenciais
+    default/fracas são rejeitadas fora de local e avisadas em local.
+    """
+    if settings.ethoscan_mode != "local":
+        if settings.ethoscan_disable_auth:
+            raise RuntimeError(
+                "ETHOSCAN_DISABLE_AUTH=true só é permitido em mode=local. "
+                f"mode atual: {settings.ethoscan_mode}."
+            )
+        if not settings.auth_enabled:
+            raise RuntimeError(
+                f"Auth obrigatória em mode={settings.ethoscan_mode}: defina "
+                "ETHOSCAN_API_KEY, ETHOSCAN_SERVICE_KEYS ou ETHOSCAN_LOCAL_*."
+            )
+        if settings.weak_credentials:
+            raise RuntimeError(
+                "Credenciais default/fracas detectadas fora de mode=local. "
+                "Gere uma key forte (ex.: openssl rand -hex 32)."
+            )
+        return
+
+    if not settings.auth_enabled:
+        if settings.ethoscan_disable_auth:
+            logger.warning("ETHOSCAN_DISABLE_AUTH=true — API sem autenticação (lab apenas).")
+        else:
+            logger.warning(
+                "Auth desligada (sem ETHOSCAN_API_KEY, ETHOSCAN_SERVICE_KEYS nem "
+                "utilizador local). Aceitável só em lab local. Defina uma key ou "
+                "ETHOSCAN_DISABLE_AUTH=true de forma explícita."
+            )
+        return
+
+    if settings.weak_credentials:
+        logger.warning(
+            "Credenciais default/fracas em mode=local — troque antes de expor a API."
+        )
+    elif (
+        settings.service_keys
+        and not settings.ethoscan_api_key.strip()
+        and not settings.local_user_configured
+    ):
+        logger.info(
+            "Auth ativa via ETHOSCAN_SERVICE_KEYS (%d chave(s)).", len(settings.service_keys)
+        )
 
 
 @asynccontextmanager
@@ -28,23 +77,10 @@ async def lifespan(_: FastAPI):
         validate_allowlist(settings.allowlist_targets)
     except ValueError as exc:
         raise RuntimeError(f"Configuração inválida: {exc}") from exc
+    # Validar auth antes de criar/migrar a DB: configuração inválida não deixa side effects.
+    _validate_auth_settings(settings)
     init_db()
-    if not settings.auth_enabled:
-        if settings.ethoscan_mode != "local":
-            logger.error(
-                "ETHOSCAN_API_KEY/utilizador local ausente e mode=%s — defina auth. "
-                "Auth só pode ficar desligada em mode=local com ETHOSCAN_DISABLE_AUTH=true.",
-                settings.ethoscan_mode,
-            )
-        elif not settings.ethoscan_disable_auth:
-            logger.warning(
-                "Auth desligada (sem ETHOSCAN_API_KEY nem utilizador local). "
-                "Aceitável só em lab local. Defina ETHOSCAN_API_KEY / "
-                "ETHOSCAN_LOCAL_* ou ETHOSCAN_DISABLE_AUTH=true de forma explícita."
-            )
-        else:
-            logger.warning("ETHOSCAN_DISABLE_AUTH=true — API sem autenticação (lab apenas).")
-    elif settings.local_user_configured:
+    if settings.local_user_configured:
         logger.info(
             "Login local ativo para utilizador '%s' (POST /api/auth/login).",
             settings.ethoscan_local_username.strip(),
@@ -55,7 +91,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title="Ethoscan",
     description="Orquestrador de pentest ético (Assess) — local-first; intensidade safe recomendada",
-    version="0.2.0",
+    version="0.3.0",
     lifespan=lifespan,
 )
 
@@ -78,6 +114,13 @@ def health() -> HealthOut:
     """Health público (sem API key) para checklist Kali / orquestração."""
     settings = get_settings()
     redis_ok = ping_redis()
+    worker_ok = worker_heartbeat_alive() if redis_ok else False
+    if not redis_ok:
+        worker_hint = "Redis down — suba redis e o worker antes de enfileirar jobs."
+    elif not worker_ok:
+        worker_hint = "Redis ok, mas worker sem heartbeat — rode: python -m app.worker."
+    else:
+        worker_hint = "API + worker ativos (heartbeat ok)."
     return HealthOut(
         status="ok",
         mode=settings.ethoscan_mode,
@@ -85,11 +128,8 @@ def health() -> HealthOut:
         auth_enabled=settings.auth_enabled,
         local_login_available=settings.local_user_configured,
         redis_ok=redis_ok,
-        worker_hint=(
-            "API + worker separados. Rode: python -m app.worker (requer Redis)."
-            if redis_ok
-            else "Redis down — suba redis e o worker antes de enfileirar jobs."
-        ),
+        worker_ok=worker_ok,
+        worker_hint=worker_hint,
         tools=tools_status(),
         phases=PHASE_LABELS,
     )

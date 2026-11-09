@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.adapters.base import AdapterResult, BaseAdapter, RawFinding
+from app.core.targets import target_url
 from app.models import Severity
 
 
@@ -15,7 +16,7 @@ class SqlmapAdapter(BaseAdapter):
     binary = "sqlmap"
 
     def _run_real(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
-        url = target if "://" in target else f"http://{target}"
+        url = target_url(target)
         out_dir = job_dir / "sqlmap"
         out_dir.mkdir(parents=True, exist_ok=True)
         out_file = job_dir / "sqlmap.txt"

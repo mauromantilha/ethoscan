@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const fs = require("fs");
 const path = require("path");
@@ -13,10 +13,42 @@ function configPath() {
   return path.join(app.getPath("userData"), "ethoscan-desktop.json");
 }
 
+function decodeApiKey(value) {
+  if (!value) return "";
+  if (!String(value).startsWith("enc:")) return String(value); // compat: config antiga em claro
+  try {
+    return safeStorage.decryptString(Buffer.from(String(value).slice(4), "base64"));
+  } catch {
+    return "";
+  }
+}
+
+function encodeApiKey(value) {
+  if (!value) return "";
+  if (safeStorage.isEncryptionAvailable()) {
+    return `enc:${safeStorage.encryptString(String(value)).toString("base64")}`;
+  }
+  // Fallback para ambientes sem keyring (ex.: lab headless). O ficheiro fica 0600.
+  return String(value);
+}
+
+function publicConfig(config) {
+  return {
+    apiBaseUrl: config.apiBaseUrl,
+    username: config.username,
+    hasApiKey: Boolean(config.apiKey),
+  };
+}
+
 function readConfig() {
   try {
     const raw = fs.readFileSync(configPath(), "utf8");
-    return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw);
+    return {
+      ...DEFAULT_CONFIG,
+      ...parsed,
+      apiKey: decodeApiKey(parsed.apiKey),
+    };
   } catch {
     return { ...DEFAULT_CONFIG };
   }
@@ -25,12 +57,20 @@ function readConfig() {
 function writeConfig(next) {
   const merged = {
     apiBaseUrl: String(next.apiBaseUrl || DEFAULT_CONFIG.apiBaseUrl).replace(/\/$/, ""),
-    apiKey: String(next.apiKey || ""),
+    apiKey: encodeApiKey(next.apiKey || ""),
     username: String(next.username || ""),
   };
   fs.mkdirSync(path.dirname(configPath()), { recursive: true });
-  fs.writeFileSync(configPath(), JSON.stringify(merged, null, 2), "utf8");
-  return merged;
+  fs.writeFileSync(configPath(), JSON.stringify(merged, null, 2), {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  try {
+    fs.chmodSync(configPath(), 0o600);
+  } catch {
+    // melhor esforço em sistemas de ficheiros sem POSIX
+  }
+  return publicConfig({ ...merged, apiKey: next.apiKey || "" });
 }
 
 function clearSession() {
@@ -123,6 +163,24 @@ function sendUpdaterStatus(payload) {
 }
 
 function setupAutoUpdater() {
+  if (process.env.ETHOSCAN_DISABLE_UPDATER === "1") {
+    const disabledStatus = {
+      state: "disabled",
+      message: "Atualizações desativadas (ETHOSCAN_DISABLE_UPDATER=1).",
+      version: app.getVersion(),
+    };
+    ipcMain.handle("updater:check", () => {
+      sendUpdaterStatus(disabledStatus);
+      return disabledStatus;
+    });
+    ipcMain.handle("updater:install", () => ({
+      ok: false,
+      message: "Atualizações desativadas neste ambiente.",
+    }));
+    setTimeout(() => sendUpdaterStatus(disabledStatus), 500);
+    return;
+  }
+
   if (!app.isPackaged) {
     const devStatus = {
       state: "dev",
@@ -263,7 +321,7 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-ipcMain.handle("config:get", () => readConfig());
+ipcMain.handle("config:get", () => publicConfig(readConfig()));
 
 ipcMain.handle("config:set", (_event, next) => writeConfig(next || {}));
 

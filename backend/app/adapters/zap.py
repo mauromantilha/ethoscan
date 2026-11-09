@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 
 from app.adapters.base import AdapterResult, BaseAdapter, RawFinding
+from app.core.targets import target_url
 from app.models import Severity
 
 
@@ -27,7 +28,7 @@ class ZapAdapter(BaseAdapter):
         return self.binary
 
     def _run_real(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
-        url = target if target.startswith("http") else f"http://{target}"
+        url = target_url(target)
         out_html = job_dir / "zap-report.html"
         binary = self._binary()
         # Quick scan: spider + passive/active light — sem scripting de exploits.

@@ -476,15 +476,24 @@ def resolve_selected_tools(selected: list[str] | None) -> list[str]:
 
 
 def validate_selected_tools(selected: list[str] | None) -> list[str]:
-    """Valida IDs; ignora burp/inventory-only; rejeita desconhecidos."""
+    """Valida IDs; None = pipeline clássico; lista vazia explícita é erro.
+
+    Tools GUI/inventário (burpsuite, wifite, setoolkit...) não podem entrar num job:
+    antes eram descartadas em silêncio e a seleção vazia caía no pipeline clássico.
+    """
     if selected is None:
         return []
     if selected == []:
-        return []
+        raise ValueError(
+            "Nenhuma tool selecionada. Omita selected_tools para usar o pipeline clássico."
+        )
+
     known = {d["id"] for d in _CATALOG_DEFS}
     runnable = runnable_adapter_ids()
     cleaned: list[str] = []
     unknown: list[str] = []
+    not_runnable: list[str] = []
+
     for raw in selected:
         key = (raw or "").strip().lower()
         if not key:
@@ -493,19 +502,40 @@ def validate_selected_tools(selected: list[str] | None) -> list[str]:
             unknown.append(key)
             continue
         if key not in runnable:
-            # burpsuite / inventory / GUI — não entram na seleção de job
+            not_runnable.append(key)
             continue
         if key not in cleaned:
             cleaned.append(key)
+
+    problems: list[str] = []
     if unknown:
-        raise ValueError(f"Tools desconhecidas: {', '.join(unknown)}")
+        problems.append(f"Tools desconhecidas: {', '.join(unknown)}")
+    if not_runnable:
+        problems.append(
+            "Tools não executáveis no pipeline (GUI/inventário): "
+            f"{', '.join(not_runnable)}"
+        )
+    if problems:
+        raise ValueError("; ".join(problems))
+    if not cleaned:
+        raise ValueError(
+            "Nenhuma tool executável selecionada. Omita selected_tools para o pipeline clássico."
+        )
     return cleaned
 
 
-def filter_by_intensity(selected: list[str], intensity: str) -> list[str]:
-    """Remove tools cujo intensity_min é superior à intensidade do engagement."""
+def validate_selection_for_intensity(selected: list[str], intensity: str) -> list[str]:
+    """Rejeita tools cujo intensity_min é superior à intensidade do engagement."""
     mins = {d["id"]: d.get("intensity_min", "safe") for d in _CATALOG_DEFS}
-    return [t for t in selected if intensity_allows(str(mins.get(t, "safe")), intensity)]
+    incompatible = [
+        tool for tool in selected if not intensity_allows(str(mins.get(tool, "safe")), intensity)
+    ]
+    if incompatible:
+        raise ValueError(
+            f"Tools incompatíveis com intensity={intensity}: {', '.join(incompatible)}. "
+            "Aumente a intensidade ou remova essas tools."
+        )
+    return selected
 
 
 def tool_catalog() -> list[dict[str, Any]]:

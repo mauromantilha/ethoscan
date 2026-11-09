@@ -1,0 +1,29 @@
+target-version = "py312"
+line-length = 100
+
+[lint]
+select = [
+    "E4",  # pycodestyle: imports
+    "E7",  # pycodestyle: statements
+    "E9",  # pycodestyle: runtime errors
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "RUF", # ruff-specific
+    "S",   # flake8-bandit (security)
+]
+ignore = [
+    # FastAPI/typer usam chamadas em defaults (Depends, Option, Query...).
+    "B008",
+    # Texto em pt-BR usa travessões/en-dash em docstrings e comentários.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+    # Os enums str+Enum são o padrão atual do SQLAlchemy/Pydantic no projeto.
+    "UP042",
+]
+
+[lint.per-file-ignores]
+# Em testes, asserts, passwords de fixture e paths temporários são esperados.
+"tests/**" = ["S101", "S105", "S106", "S108"]

@@ -17,14 +17,15 @@ flowchart LR
     cli["cli.py (Typer)"] -->|HTTP httpx| api
     api["api (FastAPI :8000)\nbackend/app/main.py"] -->|LPUSH job_id| redis[(Redis)]
     api -->|read/write| pg[(Postgres/SQLite)]
-    worker["worker (loop contínuo)\nbackend/app/worker.py"] -->|BRPOP job_id| redis
+    worker["worker (loop contínuo)\nbackend/app/worker.py"] -->|BRPOPLPUSH job_id -> processing| redis
     worker -->|read/write| pg
     worker -->|executa binários| tools["nmap / whatweb / gobuster\nsslscan / nuclei (+ nikto/masscan/zap/msf-aux)"]
 ```
 
 **Ponto que mais confunde:** a API **nunca executa scans**. `POST /api/engagements/{id}/jobs`
 só cria uma linha `Job(status=pending)` no banco e dá `LPUSH` no Redis. Quem de fato roda o
-pipeline é o `worker`, que é outro processo (`python -m app.worker`), lendo a fila com `BRPOP`.
+pipeline é o `worker`, que é outro processo (`python -m app.worker`), lendo a fila com
+`BRPOPLPUSH` para uma lista de processamento e fazendo `ack` após o job.
 Se o worker não estiver de pé, o job fica parado em `pending` para sempre — a API não vai
 reclamar disso além do `/health` mostrar `redis_ok`.
 
@@ -50,7 +51,8 @@ sequenceDiagram
     Note over UI: passa a fazer polling a cada 3s<br/>em /health, /api/jobs, /api/findings
 
     loop worker sempre rodando
-        W->>Q: BRPOP ethoscan:jobs
+        W->>Q: BRPOPLPUSH ethoscan:jobs -> processing
+        W->>Q: ACK job (LREM) + heartbeat
         Q-->>W: job_id
         W->>O: run_pipeline(db, job_id)
         O->>O: F0 gate: assert_roe + assert_in_scope + tools_status()
@@ -60,7 +62,7 @@ sequenceDiagram
             O->>DB: UPDATE Job.phase/progress/tool_runs
         end
         O->>O: F5: correlator.correlate() (dedup + severidade)
-        O->>DB: F6: INSERT Finding(s)
+        O->>DB: F6: INSERT Finding(s) + job_findings
         O->>O: reports.write_html_report() + write_pdf_report()
         O->>DB: UPDATE Job(status=completed, report_path, report_pdf_path)
     end
@@ -105,7 +107,7 @@ backend/app/core/authz.py     validação de escopo/RoE (usado em routes.py E de
 backend/app/lab_inventory.py  inventário Kali/lab (PATH only) → GET /api/lab/tools
 
 backend/app/queue.py          wrapper Redis: enqueue_job / pop_job / cancel flags
-backend/app/worker.py         processo separado: loop pop_job -> run_pipeline
+backend/app/worker.py         processo separado: loop pop_job -> run_pipeline -> ack + heartbeat
 backend/app/core/orchestrator.py   coração do pipeline: run_pipeline(), fases F0-F6
 
 backend/app/adapters/base.py       BaseAdapter: decide real vs mock, RawFinding/AdapterResult

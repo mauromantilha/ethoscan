@@ -12,12 +12,26 @@ services:
   api:
     # não publica mais a 8000 no host: quem fala com ele é o Caddy
     ports: !override []
+    environment:
+      # Fora de local a API exige auth e rejeita chaves default/fracas.
+      ETHOSCAN_MODE: remote
+      ETHOSCAN_ALLOW_MOCK: "false"
+      ETHOSCAN_API_KEY: ${ETHOSCAN_API_KEY:?defina ETHOSCAN_API_KEY forte no .env}
+
+  worker:
+    environment:
+      ETHOSCAN_MODE: remote
+      ETHOSCAN_ALLOW_MOCK: "false"
 
   web:
     ports: !override []
 
   caddy:
-    image: caddy:2-alpine
+    # Imagem customizada: a oficial caddy:2-alpine não inclui o módulo rate_limit.
+    build:
+      context: ./deploy
+      dockerfile: Dockerfile.caddy
+    image: ethoscan-caddy:local
     restart: unless-stopped
     ports:
       - "80:80"

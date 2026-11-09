@@ -1,3 +1,4 @@
+import socket
 from functools import lru_cache
 from pathlib import Path
 
@@ -5,6 +6,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT = Path(__file__).resolve().parents[2]
 BACKEND = Path(__file__).resolve().parents[1]
+
+# Placeholders conhecidos — rejeitados fora de mode=local e avisados em local.
+WEAK_API_KEYS = frozenset(
+    {
+        "change-me-local",
+        "change-me",
+        "changeme",
+        "your-api-key",
+        "secret",
+        "password",
+    }
+)
 
 
 class Settings(BaseSettings):
@@ -18,7 +31,8 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     ethoscan_mode: str = "local"
     ethoscan_artifacts_dir: str = str(ROOT / "artifacts")
-    ethoscan_allow_mock: bool = True
+    # Fail-closed: sem tools reais o job falha; mock é opt-in explícito (dev/lab).
+    ethoscan_allow_mock: bool = False
     ethoscan_api_host: str = "127.0.0.1"
     ethoscan_api_port: int = 8000
 
@@ -30,13 +44,28 @@ class Settings(BaseSettings):
     ethoscan_local_password_hash: str = ""
     # TTL dos tokens de sessão emitidos por POST /api/auth/login (horas)
     ethoscan_session_ttl_hours: int = 12
+    # Incrementar invalida todas as sessões emitidas (Redis e fallback memória).
+    ethoscan_session_epoch: int = 1
+    # Rate limit de login por IP (memória do processo; Caddy pode reforçar).
+    ethoscan_login_max_attempts: int = 5
+    ethoscan_login_window_seconds: int = 60
+    # Credenciais em argv ficam visíveis em `ps`; BloodHound só corre se habilitado.
+    ethoscan_allow_creds_in_argv: bool = False
 
     # CORS — origem da UI (não usar *)
     ethoscan_cors_origins: str = "http://localhost:3000"
 
     # Fila Redis
     ethoscan_queue_key: str = "ethoscan:jobs"
+    # Lista de processamento por worker (ack/requeue após crash).
+    ethoscan_processing_prefix: str = "ethoscan:processing:"
+    # ID estável do worker para recuperar jobs órfãos. Vazio = hostname.
+    ethoscan_worker_id: str = ""
+    ethoscan_worker_heartbeat_key: str = "ethoscan:worker:heartbeat"
+    ethoscan_worker_heartbeat_ttl_seconds: int = 30
     ethoscan_cancel_prefix: str = "ethoscan:cancel:"
+    # Segredo para assinar webhooks (HMAC-SHA256). Vazio = sem assinatura.
+    ethoscan_callback_secret: str = ""
     ethoscan_callback_prefix: str = "ethoscan:callback:"
     # Sessões de login (login local). No Redis elas sobrevivem a restart da API;
     # sem Redis há fallback em memória do processo.
@@ -76,11 +105,37 @@ class Settings(BaseSettings):
         )
 
     @property
+    def service_keys(self) -> list[str]:
+        """Chaves de serviço (CSV), sem entradas vazias."""
+        return [key.strip() for key in self.ethoscan_service_keys.split(",") if key.strip()]
+
+    @property
+    def worker_id(self) -> str:
+        return self.ethoscan_worker_id.strip() or socket.gethostname()
+
+    @property
+    def processing_key(self) -> str:
+        return f"{self.ethoscan_processing_prefix}{self.worker_id}"
+
+    @property
+    def weak_credentials(self) -> list[str]:
+        """Credenciais default/fracas configuradas (master key e service keys)."""
+        candidates = [self.ethoscan_api_key.strip(), *self.service_keys]
+        return [value for value in candidates if value.lower() in WEAK_API_KEYS]
+
+    @property
     def auth_enabled(self) -> bool:
-        """Auth obrigatória se houver API key ou utilizador local (salvo DISABLE_AUTH)."""
+        """Auth obrigatória se houver API key, service key ou utilizador local.
+
+        ``ETHOSCAN_DISABLE_AUTH=true`` continua a ser o escape explícito para lab.
+        """
         if self.ethoscan_disable_auth:
             return False
-        return bool(self.ethoscan_api_key.strip()) or self.local_user_configured
+        return (
+            bool(self.ethoscan_api_key.strip())
+            or bool(self.service_keys)
+            or self.local_user_configured
+        )
 
 
 @lru_cache

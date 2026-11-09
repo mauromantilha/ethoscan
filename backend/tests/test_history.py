@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from app.core.orchestrator import _prune_redundant_tools, run_pipeline
 from app import db as dbmod
+from app.core.orchestrator import _prune_redundant_tools, run_pipeline
 from app.models import Job, JobStatus
 
 

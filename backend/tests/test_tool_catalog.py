@@ -5,8 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from app.core.orchestrator import run_pipeline
+import pytest
+
 from app import db as dbmod
+from app.core.orchestrator import run_pipeline
 from app.models import Job, JobStatus
 from app.tool_catalog import (
     REQUESTED_TOOL_IDS,
@@ -138,12 +140,16 @@ def test_resolve_selected_tools_defaults():
     ]
 
 
-def test_validate_rejects_unknown():
-    try:
+def test_validate_selected_tools_semantics():
+    assert validate_selected_tools(None) == []
+    with pytest.raises(ValueError, match="Nenhuma tool"):
+        validate_selected_tools([])
+    with pytest.raises(ValueError, match="desconhecidas"):
         validate_selected_tools(["nmap", "not-a-tool"])
-        assert False, "expected ValueError"
-    except ValueError as exc:
-        assert "desconhecidas" in str(exc).lower() or "not-a-tool" in str(exc)
+    with pytest.raises(ValueError, match="não executáveis"):
+        validate_selected_tools(["burpsuite"])
+    with pytest.raises(ValueError, match="não executáveis"):
+        validate_selected_tools(["wifite", "setoolkit"])
 
 
 def test_selected_tools_filters_pipeline(client):
@@ -191,16 +197,16 @@ def test_selected_tools_filters_pipeline(client):
     assert all(f["tool"] == "nmap" for f in fr.json())
 
 
-def test_empty_selection_runs_classic_pipeline(client):
+def test_omitted_selection_runs_classic_pipeline(client):
     r = client.post(
         "/api/engagements",
         json={
             "name": "Pipeline clássico",
             "scope_targets": ["scanme.nmap.org"],
             "roe_acknowledged": True,
-            "selected_tools": [],
         },
     )
+    assert r.status_code == 200, r.text
     eng_id = r.json()["id"]
     with patch("app.api.routes.ping_redis", return_value=True), patch(
         "app.api.routes.enqueue_job"
@@ -215,6 +221,55 @@ def test_empty_selection_runs_classic_pipeline(client):
         assert set(job.selected_tools) == {"nmap", "whatweb", "gobuster", "sslscan", "nuclei"}
     finally:
         db.close()
+
+
+def test_explicit_empty_selection_is_rejected(client):
+    r = client.post(
+        "/api/engagements",
+        json={
+            "name": "Vazio explícito",
+            "scope_targets": ["scanme.nmap.org"],
+            "roe_acknowledged": True,
+            "selected_tools": [],
+        },
+    )
+    assert r.status_code == 400
+    assert "Nenhuma tool" in r.json()["detail"]
+
+    # Também no start de um engagement válido.
+    valid = client.post(
+        "/api/engagements",
+        json={
+            "name": "Start vazio",
+            "scope_targets": ["scanme.nmap.org"],
+            "roe_acknowledged": True,
+            "selected_tools": ["nmap"],
+        },
+    )
+    assert valid.status_code == 200
+    with patch("app.api.routes.ping_redis", return_value=True), patch(
+        "app.api.routes.enqueue_job"
+    ):
+        start = client.post(
+            f"/api/engagements/{valid.json()['id']}/jobs",
+            json={"selected_tools": []},
+        )
+    assert start.status_code == 400
+    assert "Nenhuma tool" in start.json()["detail"]
+
+
+def test_non_runnable_tool_is_rejected(client):
+    r = client.post(
+        "/api/engagements",
+        json={
+            "name": "Burp apenas",
+            "scope_targets": ["scanme.nmap.org"],
+            "roe_acknowledged": True,
+            "selected_tools": ["burpsuite"],
+        },
+    )
+    assert r.status_code == 400
+    assert "não executáveis" in r.json()["detail"]
 
 
 def test_pdf_report_endpoint(client):
@@ -274,8 +329,8 @@ def test_roe_still_required_with_selected_tools(client):
     assert jr.status_code == 403
 
 
-def test_intensity_filters_hydra_on_safe(client):
-    """Hydra (intensity_min=standard) é filtrado em engagement safe."""
+def test_intensity_rejects_hydra_on_safe(client):
+    """Hydra (intensity_min=standard) não é aceite silenciosamente em safe."""
     r = client.post(
         "/api/engagements",
         json={
@@ -286,18 +341,28 @@ def test_intensity_filters_hydra_on_safe(client):
             "selected_tools": ["nmap", "hydra"],
         },
     )
-    eng_id = r.json()["id"]
+    assert r.status_code == 400
+    assert "incompatíveis" in r.json()["detail"]
+
+    # Também no start, para engagements antigos/DB editada.
+    created = client.post(
+        "/api/engagements",
+        json={
+            "name": "Start hydra safe",
+            "scope_targets": ["scanme.nmap.org"],
+            "intensity": "safe",
+            "roe_acknowledged": True,
+            "selected_tools": ["nmap"],
+        },
+    )
+    assert created.status_code == 200
+    eng_id = created.json()["id"]
     with patch("app.api.routes.ping_redis", return_value=True), patch(
         "app.api.routes.enqueue_job"
     ):
-        jr = client.post(f"/api/engagements/{eng_id}/jobs", json={})
-    job_id = jr.json()["job"]["id"]
-    run_pipeline(dbmod.SessionLocal(), job_id)
-    db = dbmod.SessionLocal()
-    try:
-        job = db.get(Job, job_id)
-        assert job.status == JobStatus.completed
-        assert "hydra" not in (job.selected_tools or [])
-        assert "nmap" in (job.selected_tools or [])
-    finally:
-        db.close()
+        jr = client.post(
+            f"/api/engagements/{eng_id}/jobs",
+            json={"selected_tools": ["nmap", "hydra"]},
+        )
+    assert jr.status_code == 400
+    assert "incompatíveis" in jr.json()["detail"]

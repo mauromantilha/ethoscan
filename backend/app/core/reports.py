@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.models import Engagement, Finding, Job
@@ -42,9 +42,19 @@ def build_report_html(
     )
     tools_line = ", ".join(tools_used) if tools_used else "(pipeline clássico)"
     roe = engagement.roe_text or "RoE confirmado pelo operador (assessment só no escopo)."
+    mocked_count = sum(1 for finding in findings if finding.mocked)
+    mock_notice = ""
+    if mocked_count:
+        mock_notice = (
+            f'<div class="mock"><strong>MOCK:</strong> {mocked_count} de '
+            f"{len(findings)} achado(s) foram gerados em modo mock. "
+            "Estes resultados não representam um scan real.</div>"
+        )
+    finished = job.finished_at.isoformat() if job.finished_at else "—"
     rows = "\n".join(
         f"<tr><td>{f.severity.value}</td><td>{_esc(f.title)}</td><td>{_esc(f.target)}</td>"
-        f"<td>{_esc(f.tool)}</td><td>{_esc(f.description)}</td></tr>"
+        f"<td>{_esc(f.tool)}</td><td>{'MOCK' if f.mocked else 'real'}</td>"
+        f"<td>{_esc(f.description)}</td></tr>"
         for f in findings
     )
     return f"""<!DOCTYPE html>
@@ -57,6 +67,7 @@ def build_report_html(
     h1 {{ letter-spacing: -0.02em; }}
     .meta {{ color: #57534e; margin-bottom: 1.5rem; }}
     .roe {{ background: #fff; border-left: 4px solid #0f766e; padding: 0.75rem 1rem; margin: 1rem 0; }}
+    .mock {{ background: #fef3c7; border-left: 4px solid #b45309; padding: 0.75rem 1rem; margin: 1rem 0; }}
     table {{ border-collapse: collapse; width: 100%; background: #fff; }}
     th, td {{ border: 1px solid #d6d3d1; padding: 0.6rem 0.75rem; text-align: left; vertical-align: top; }}
     th {{ background: #1c1917; color: #fafaf9; }}
@@ -75,14 +86,16 @@ def build_report_html(
     <div>Escopo: {_esc(", ".join(engagement.scope_targets))}</div>
     <div>Tools usadas: {_esc(tools_line)}</div>
     <div>Intensidade: {engagement.intensity.value}</div>
-    <div>Gerado em {datetime.now(timezone.utc).isoformat()}</div>
+    <div>Finalizado em {finished}</div>
+    <div>Gerado em {datetime.now(UTC).isoformat()}</div>
   </div>
   <div class="roe"><strong>Nota RoE:</strong> {_esc(roe)}</div>
+  {mock_notice}
   <h2>Achados ({len(findings)})</h2>
   <table>
-    <thead><tr><th>Severidade</th><th>Título</th><th>Alvo</th><th>Tool</th><th>Descrição</th></tr></thead>
+    <thead><tr><th>Severidade</th><th>Título</th><th>Alvo</th><th>Tool</th><th>Modo</th><th>Descrição</th></tr></thead>
     <tbody>
-      {rows or '<tr><td colspan="5">Nenhum achado.</td></tr>'}
+      {rows or '<tr><td colspan="6">Nenhum achado.</td></tr>'}
     </tbody>
   </table>
 </body>
@@ -107,6 +120,8 @@ def _write_pdf_reportlab(
     )
     tools_line = ", ".join(tools_used) if tools_used else "(pipeline clássico)"
     roe = engagement.roe_text or "RoE confirmado pelo operador (assessment só no escopo)."
+    mocked_count = sum(1 for finding in findings if finding.mocked)
+    finished = job.finished_at.isoformat() if job.finished_at else "—"
 
     doc = SimpleDocTemplate(
         str(path),
@@ -127,19 +142,35 @@ def _write_pdf_reportlab(
             f"Escopo: {_esc(', '.join(engagement.scope_targets))}<br/>"
             f"Tools usadas: {_esc(tools_line)}<br/>"
             f"Intensidade: {engagement.intensity.value}<br/>"
-            f"Gerado em {datetime.now(timezone.utc).isoformat()}",
+            f"Finalizado em {finished}<br/>"
+            f"Gerado em {datetime.now(UTC).isoformat()}",
             styles["Normal"],
         ),
         Spacer(1, 0.4 * cm),
         Paragraph(f"<b>Nota RoE:</b> {_esc(roe)}", styles["Normal"]),
-        Spacer(1, 0.5 * cm),
-        Paragraph(f"<b>Achados ({len(findings)})</b>", styles["Heading2"]),
     ]
+    if mocked_count:
+        story.extend(
+            [
+                Spacer(1, 0.3 * cm),
+                Paragraph(
+                    f"<b>MOCK:</b> {mocked_count} de {len(findings)} achado(s) foram gerados "
+                    "em modo mock. Estes resultados não representam um scan real.",
+                    styles["Normal"],
+                ),
+            ]
+        )
+    story.extend(
+        [
+            Spacer(1, 0.5 * cm),
+            Paragraph(f"<b>Achados ({len(findings)})</b>", styles["Heading2"]),
+        ]
+    )
 
-    header = ["Severidade", "Título", "Alvo", "Tool", "Descrição"]
+    header = ["Severidade", "Título", "Alvo", "Tool", "Modo", "Descrição"]
     data = [header]
     if not findings:
-        data.append(["—", "Nenhum achado.", "—", "—", "—"])
+        data.append(["—", "Nenhum achado.", "—", "—", "—", "—"])
     else:
         for f in findings:
             data.append(
@@ -147,12 +178,16 @@ def _write_pdf_reportlab(
                     f.severity.value,
                     Paragraph(_esc(f.title)[:120], styles["Normal"]),
                     Paragraph(_esc(f.target)[:80], styles["Normal"]),
-                    f.tool,
+                    Paragraph(_esc(f.tool), styles["Normal"]),
+                    "MOCK" if f.mocked else "real",
                     Paragraph(_esc(f.description or "")[:200], styles["Normal"]),
                 ]
             )
 
-    table = Table(data, colWidths=[2.2 * cm, 5 * cm, 3.5 * cm, 2.5 * cm, 5 * cm])
+    table = Table(
+        data,
+        colWidths=[2.0 * cm, 4.5 * cm, 3.0 * cm, 2.2 * cm, 1.5 * cm, 4.5 * cm],
+    )
     table.setStyle(
         TableStyle(
             [

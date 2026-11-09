@@ -1,4 +1,13 @@
 services:
+  # Garante que ./artifacts pertence ao UID da API non-root (1000).
+  artifacts-init:
+    image: alpine:3.20
+    user: "0:0"
+    restart: "no"
+    volumes:
+      - ./artifacts:/artifacts
+    command: ["sh", "-c", "mkdir -p /artifacts && chown -R 1000:1000 /artifacts"]
+
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -43,8 +52,10 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://ethoscan:ethoscan@postgres:5432/ethoscan
       REDIS_URL: redis://redis:6379/0
+      # Base = lab local. O override remote/publicação define ETHOSCAN_MODE=remote.
       ETHOSCAN_MODE: local
-      ETHOSCAN_ALLOW_MOCK: ${ETHOSCAN_ALLOW_MOCK:-true}
+      # Fail-closed: mock só com opt-in explícito no .env.
+      ETHOSCAN_ALLOW_MOCK: ${ETHOSCAN_ALLOW_MOCK:-false}
       ETHOSCAN_ARTIFACTS_DIR: /app/artifacts
       ETHOSCAN_CORS_ORIGINS: ${ETHOSCAN_CORS_ORIGINS:-http://localhost:3000}
       # API publicada na rede => auth ligada por padrão (login local e/ou X-API-Key)
@@ -58,7 +69,16 @@ services:
     volumes:
       # relatórios HTML/PDF ficam visíveis no host
       - ./artifacts:/app/artifacts
+    # API non-root; grupo root para escrever em artefactos criados pelo worker.
+    group_add:
+      - "0"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     depends_on:
+      artifacts-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -78,27 +98,44 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    # Scanners raw (nmap/masscan) precisam de root + NET_RAW/NET_ADMIN.
+    user: "0:0"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+      - DAC_OVERRIDE
     env_file:
       - .env
     environment:
       DATABASE_URL: postgresql+psycopg://ethoscan:ethoscan@postgres:5432/ethoscan
       REDIS_URL: redis://redis:6379/0
       ETHOSCAN_MODE: local
-      ETHOSCAN_ALLOW_MOCK: ${ETHOSCAN_ALLOW_MOCK:-true}
+      ETHOSCAN_ALLOW_MOCK: ${ETHOSCAN_ALLOW_MOCK:-false}
       ETHOSCAN_ARTIFACTS_DIR: /app/artifacts
       ETHOSCAN_LOG_LEVEL: ${ETHOSCAN_LOG_LEVEL:-INFO}
       ETHOSCAN_LOG_FORMAT: ${ETHOSCAN_LOG_FORMAT:-text}
+      # ID estável para recuperar jobs órfãos após crash/restart.
+      ETHOSCAN_WORKER_ID: ${ETHOSCAN_WORKER_ID:-worker-1}
     volumes:
       - ./artifacts:/app/artifacts
     depends_on:
+      artifacts-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
       api:
         condition: service_started
-    # Limite single-node: 1 worker processa 1 job de cada vez; a API permanece responsiva
-    command: python -m app.worker
+    # Limite single-node: 1 worker processa 1 job de cada vez; a API permanece responsiva.
+    # stop_grace_period dá tempo ao job atual antes do SIGKILL; órfãos são recuperados no restart.
+    stop_grace_period: 10m
+    # umask 0002: ficheiros do worker no grupo root, graváveis pela API (group_add 0).
+    command: ["sh", "-c", "umask 0002 && python -m app.worker"]
 
   web:
     build:

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
 
 from app.adapters.base import AdapterResult, BaseAdapter, RawFinding
+from app.core.targets import target_host
 from app.models import Severity
 
 # Wordlists curtas embutidas (lab) — nunca rockyou completo.
@@ -37,7 +39,7 @@ class HydraAdapter(BaseAdapter):
                 "Hydra requer intensidade standard+ (RoE explícito).",
             )
 
-        host = target.split("://")[-1].split("/")[0].split(":")[0]
+        host = target_host(target)
         users = job_dir / "hydra_users.txt"
         pwds = job_dir / "hydra_pass.txt"
         users.write_text("\n".join(_USERS) + "\n")
@@ -122,6 +124,10 @@ class HydraAdapter(BaseAdapter):
         for line in (content or "").splitlines():
             low = line.lower()
             if "login:" in low and "password:" in low and "host:" in low:
+                # Não persistir a password em claro no finding/auditoria.
+                evidence = re.sub(
+                    r"(?i)(password:\s*)\S+", r"\1***", line.strip()
+                )[:500]
                 findings.append(
                     RawFinding(
                         title="Credencial encontrada (Hydra)",
@@ -130,7 +136,7 @@ class HydraAdapter(BaseAdapter):
                         tool=self.name,
                         category="cred",
                         description="Hydra reportou login válido (wordlist curta, lab).",
-                        evidence=line.strip()[:500],
+                        evidence=evidence,
                         remediation="Rodar passwords fortes; desativar auth fraca.",
                     )
                 )

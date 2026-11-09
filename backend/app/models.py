@@ -3,7 +3,18 @@ from __future__ import annotations
 import enum
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -45,6 +56,10 @@ class Engagement(Base):
     roe_acknowledged: Mapped[bool] = mapped_column(Boolean, default=False)
     roe_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Referência idempotente da integração (ex.: external_ref do n8n).
+    external_ref: Mapped[str | None] = mapped_column(
+        String(120), nullable=True, unique=True, index=True
+    )
     # Subconjunto do catálogo; vazio/None = pipeline clássico F1–F4.
     selected_tools: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -82,9 +97,16 @@ class Job(Base):
 
 class Finding(Base):
     __tablename__ = "findings"
+    __table_args__ = (
+        UniqueConstraint(
+            "engagement_id", "fingerprint", name="uq_findings_engagement_fingerprint"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), nullable=False)
+    # Primeiro job que encontrou o finding (compatibilidade). Todos os jobs que
+    # observaram o mesmo fingerprint ficam em job_findings.
     job_id: Mapped[int | None] = mapped_column(ForeignKey("jobs.id"), nullable=True)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     severity: Mapped[Severity] = mapped_column(_str_enum(Severity), default=Severity.info)
@@ -104,12 +126,26 @@ class Finding(Base):
     job: Mapped[Job | None] = relationship(back_populates="findings")
 
 
+class JobFinding(Base):
+    """Associação N:N entre job e finding (um finding pode aparecer em vários jobs)."""
+
+    __tablename__ = "job_findings"
+
+    job_id: Mapped[int] = mapped_column(
+        ForeignKey("jobs.id", ondelete="CASCADE"), primary_key=True
+    )
+    finding_id: Mapped[int] = mapped_column(
+        ForeignKey("findings.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     engagement_id: Mapped[int | None] = mapped_column(ForeignKey("engagements.id"), nullable=True)
     actor: Mapped[str] = mapped_column(String(100), default="system")
+    client_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
     action: Mapped[str] = mapped_column(String(100), nullable=False)
     detail: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

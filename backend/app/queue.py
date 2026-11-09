@@ -13,7 +13,14 @@ logger = logging.getLogger("ethoscan.queue")
 
 def get_redis() -> redis.Redis:
     settings = get_settings()
-    return redis.Redis.from_url(settings.redis_url, decode_responses=True)
+    return redis.Redis.from_url(
+        settings.redis_url,
+        decode_responses=True,
+        socket_connect_timeout=2,
+        socket_timeout=5,
+        retry_on_timeout=True,
+        health_check_interval=30,
+    )
 
 
 def enqueue_job(job_id: int) -> None:
@@ -23,11 +30,17 @@ def enqueue_job(job_id: int) -> None:
     logger.info("job %s enqueued on %s", job_id, settings.ethoscan_queue_key)
 
 
-def request_cancel(job_id: int) -> None:
+def request_cancel(job_id: int) -> bool:
+    """Marca cancelamento no Redis (best-effort; o DB é a fonte de verdade)."""
     settings = get_settings()
-    client = get_redis()
-    key = f"{settings.ethoscan_cancel_prefix}{job_id}"
-    client.set(key, "1", ex=86400)
+    try:
+        client = get_redis()
+        key = f"{settings.ethoscan_cancel_prefix}{job_id}"
+        client.set(key, "1", ex=86400)
+        return True
+    except redis.RedisError:
+        logger.warning("não foi possível marcar cancelamento do job %s no Redis", job_id)
+        return False
 
 
 def is_cancel_requested(job_id: int) -> bool:
@@ -51,13 +64,79 @@ def clear_cancel(job_id: int) -> None:
 
 
 def pop_job(timeout: int = 5) -> int | None:
+    """Move o próximo job da fila para a lista de processamento deste worker."""
     settings = get_settings()
     client = get_redis()
-    item = client.brpop(settings.ethoscan_queue_key, timeout=timeout)
-    if not item:
+    raw = client.brpoplpush(
+        settings.ethoscan_queue_key, settings.processing_key, timeout=timeout
+    )
+    if not raw:
         return None
-    _, raw = item
     return int(raw)
+
+
+def ack_job(job_id: int) -> bool:
+    """Remove o job da lista de processamento após execução (sucesso ou falha)."""
+    settings = get_settings()
+    try:
+        client = get_redis()
+        client.lrem(settings.processing_key, 1, str(job_id))
+        return True
+    except redis.RedisError:
+        logger.warning("não foi possível confirmar (ack) o job %s no Redis", job_id)
+        return False
+
+
+def requeue_processing() -> int:
+    """Devolve à fila jobs órfãos deste worker (crash/restart).
+
+    Usa lock Redis curto para evitar duas instâncias com o mesmo worker_id a
+    moverem a mesma lista ao mesmo tempo. O worker_id deve ser estável no deploy.
+    """
+    settings = get_settings()
+    try:
+        client = get_redis()
+        lock_key = f"{settings.processing_key}:requeue-lock"
+        if not client.set(lock_key, "1", nx=True, ex=10):
+            return 0
+        moved = 0
+        try:
+            while True:
+                item = client.rpoplpush(settings.processing_key, settings.ethoscan_queue_key)
+                if not item:
+                    break
+                moved += 1
+        finally:
+            try:
+                client.delete(lock_key)
+            except redis.RedisError:
+                pass
+        return moved
+    except redis.RedisError:
+        logger.warning("não foi possível recuperar jobs órfãos do worker %s", settings.worker_id)
+        return 0
+
+
+def set_worker_heartbeat() -> bool:
+    settings = get_settings()
+    try:
+        client = get_redis()
+        client.setex(
+            settings.ethoscan_worker_heartbeat_key,
+            max(5, settings.ethoscan_worker_heartbeat_ttl_seconds),
+            settings.worker_id,
+        )
+        return True
+    except redis.RedisError:
+        return False
+
+
+def worker_heartbeat_alive() -> bool:
+    settings = get_settings()
+    try:
+        return bool(get_redis().exists(settings.ethoscan_worker_heartbeat_key))
+    except redis.RedisError:
+        return False
 
 
 def ping_redis() -> bool:

@@ -30,10 +30,35 @@ def test_is_valid_target_rejects_tld_and_junk(raw: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "raw", ["scanme.nmap.org", "localhost", "10.0.0.0/24", "10.0.0.5", "http://ex.com/x"]
+    "raw",
+    [
+        "scanme.nmap.org",
+        "localhost",
+        "10.0.0.0/24",
+        "10.0.0.5",
+        "2001:db8::1",
+        "2001:db8::/32",
+        "http://ex.com/",
+        "https://ex.com",
+        "http://[2001:db8::1]/",
+    ],
 )
 def test_is_valid_target_accepts(raw: str) -> None:
     assert is_valid_target(raw) is True
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "http://ex.com/x",
+        "http://ex.com:8443/",
+        "https://ex.com/?q=1",
+        "https://ex.com/#frag",
+        "ftp://ex.com/",
+    ],
+)
+def test_is_valid_target_rejects_url_with_port_or_path(raw: str) -> None:
+    assert is_valid_target(raw) is False
 
 
 def test_normalize_target_forms() -> None:
@@ -46,7 +71,9 @@ def test_validate_scope_rejects_tld_and_normalizes() -> None:
     with pytest.raises(HTTPException) as exc:
         validate_scope(["com"])
     assert exc.value.status_code == 400
-    assert validate_scope(["http://Example.com/x"]) == ["example.com"]
+    assert validate_scope(["http://Example.com/"]) == ["example.com"]
+    with pytest.raises(HTTPException):
+        validate_scope(["https://example.com:8443/admin"])
 
 
 def test_validate_allowlist() -> None:
@@ -71,6 +98,27 @@ def test_assert_in_allowlist_semantics() -> None:
         assert_in_allowlist("qualquercoisa.com", ["com"])
     with pytest.raises(HTTPException):
         assert_targets_allowed(["ok.com", "fora.org"], ["ok.com"])
+
+
+def test_allowlist_ip_and_hostname_do_not_mix_by_suffix() -> None:
+    # Antes, "evil.10.0.0.5" era aceito por terminar em ".10.0.0.5".
+    with pytest.raises(HTTPException):
+        assert_in_allowlist("evil.10.0.0.5", ["10.0.0.5"])
+    with pytest.raises(HTTPException):
+        assert_in_allowlist("sub.192.168.1.1", ["192.168.1.1"])
+    # IP não é coberto por hostname e vice-versa.
+    with pytest.raises(HTTPException):
+        assert_in_allowlist("10.0.0.5", ["example.com"])
+    with pytest.raises(HTTPException):
+        assert_in_allowlist("example.com", ["10.0.0.0/8"])
+
+
+def test_allowlist_cidr_containment() -> None:
+    assert_in_allowlist("10.10.0.0/24", ["10.0.0.0/8"])
+    assert_in_allowlist("10.10.0.5", ["10.0.0.0/8"])
+    assert_in_allowlist("10.10.0.5/32", ["10.10.0.0/24"])
+    with pytest.raises(HTTPException):
+        assert_in_allowlist("10.0.0.0/8", ["10.10.0.0/24"])
 
 
 def test_assert_in_scope_semantics_preserved() -> None:

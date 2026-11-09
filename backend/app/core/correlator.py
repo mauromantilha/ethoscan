@@ -3,7 +3,6 @@ from __future__ import annotations
 from app.adapters.base import RawFinding
 from app.models import Severity
 
-
 _RANK = {
     Severity.info: 1,
     Severity.low: 2,

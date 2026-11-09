@@ -65,9 +65,31 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  debian-install:
+    name: Debian 12 install test
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ethoscan-desktop-linux
+          path: dist-artifacts
+
+      - name: Install package in Debian 12
+        run: |
+          docker run --rm -v "$PWD/dist-artifacts:/dist:ro" debian:12 bash -c '
+            set -e
+            apt-get update
+            apt-get install -y desktop-file-utils /dist/ethoscan_*_amd64.deb
+            dpkg -s ethoscan | grep -E "^(Package|Version|Depends):"
+            test -x /usr/bin/ethoscan
+            desktop-file-validate /usr/share/applications/ethoscan.desktop
+          '
+
   release:
     name: GitHub Release
-    needs: build
+    needs: [build, debian-install]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -78,6 +100,13 @@ jobs:
 
       - name: List release files
         run: find dist-artifacts -type f | sort
+
+      - name: Generate checksums
+        run: |
+          cd dist-artifacts
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' -printf '%f\n' \
+            | sort | xargs sha256sum > SHA256SUMS.txt
+          cat SHA256SUMS.txt
 
       - name: Create / update GitHub Release
         uses: softprops/action-gh-release@v2
@@ -100,6 +129,13 @@ jobs:
             ### Artefactos
             - **Linux:** AppImage e/ou `.deb`
             - **Windows:** instalador NSIS (`.exe`) e/ou portable
+            - `SHA256SUMS.txt` para verificação
+
+            ### Debian/Ubuntu
+            ```bash
+            sudo apt install ./ethoscan_<versão>_amd64.deb
+            ```
+            Guia completo em `docs/desktop-linux.md` (inclui repositório APT opcional).
 
             Auto-update (electron-updater) aplica-se sobretudo ao **NSIS** instalado; portable não atualiza in-place de forma fiável. A primeira instalação de cada major/minor base pode ser manual; versões seguintes atualizam quando online.
 

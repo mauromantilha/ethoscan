@@ -7,6 +7,8 @@ import shutil
 from pathlib import Path
 
 from app.adapters.base import AdapterResult, BaseAdapter, RawFinding
+from app.config import get_settings
+from app.core.targets import target_host
 from app.models import Severity
 
 
@@ -75,7 +77,7 @@ class BloodhoundAdapter(BaseAdapter):
                 artifact_path=str(out_file),
             )
 
-        host = target.split("://")[-1].split("/")[0].split(":")[0]
+        host = target_host(target)
         creds = _load_ad_creds(job_dir)
         user = creds.get("BH_USERNAME") or creds.get("USERNAME")
         password = creds.get("BH_PASSWORD") or creds.get("PASSWORD")
@@ -96,6 +98,32 @@ class BloodhoundAdapter(BaseAdapter):
                 findings=[
                     RawFinding(
                         title="BloodHound omitido (sem credenciais)",
+                        severity=Severity.info,
+                        target=target,
+                        tool=self.name,
+                        category="ad",
+                        description=msg,
+                        evidence=msg,
+                    )
+                ],
+                artifact_path=str(out_file),
+            )
+
+        if not get_settings().ethoscan_allow_creds_in_argv:
+            msg = (
+                "BloodHound.py omitido: password em argv ficaria visível em `ps`. "
+                "Use um ambiente isolado e habilite ETHOSCAN_ALLOW_CREDS_IN_ARGV=true "
+                "apenas em lab."
+            )
+            out_file.write_text(msg + "\n")
+            return AdapterResult(
+                tool=self.name,
+                mocked=False,
+                command=["bloodhound-python", "--skipped-creds-argv"],
+                stdout=msg,
+                findings=[
+                    RawFinding(
+                        title="BloodHound omitido (credenciais em argv)",
                         severity=Severity.info,
                         target=target,
                         tool=self.name,

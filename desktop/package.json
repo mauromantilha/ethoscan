@@ -1,6 +1,6 @@
 {
-  "name": "ethoscan-desktop",
-  "version": "0.1.4",
+  "name": "ethoscan",
+  "version": "0.3.0",
   "private": true,
   "description": "Shell Electron local para o Ethoscan — dispara pentests éticos via API existente",
   "author": "Ethoscan <ethoscan@users.noreply.github.com>",
@@ -53,19 +53,43 @@
         "deb"
       ],
       "category": "Network",
+      "icon": "build/icon.png",
+      "executableName": "ethoscan",
       "maintainer": "Ethoscan <ethoscan@users.noreply.github.com>",
       "synopsis": "Cliente Electron para a API Ethoscan (pentest ético local)",
       "description": "Shell desktop que chama a API Ethoscan local. Requer API + Redis + worker; não inclui scanners.",
-      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+      "desktop": {
+        "Name": "Ethoscan",
+        "Comment": "Cliente Ethoscan para pentest ético local",
+        "Categories": "Network;Security;",
+        "Keywords": "pentest;security;scan;ethoscan;",
+        "StartupWMClass": "Ethoscan"
+      },
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "deb": {
-      "depends": []
+      "artifactName": "ethoscan_${version}_${arch}.deb",
+      "priority": "optional",
+      "depends": [
+        "libgtk-3-0 | libgtk-3-0t64",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0 | libatspi2.0-0t64",
+        "libuuid1",
+        "libsecret-1-0",
+        "libgbm1",
+        "libasound2 | libasound2t64"
+      ]
     },
     "win": {
       "target": [
         "portable",
         "nsis"
       ],
+      "icon": "build/icon.ico",
       "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
     },
     "nsis": {

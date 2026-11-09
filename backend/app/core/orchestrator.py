@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 from sqlalchemy.orm import Session
@@ -12,11 +12,16 @@ from app.adapters import all_adapters, tools_status
 from app.adapters.base import AdapterResult, RawFinding
 from app.config import get_settings
 from app.core.authz import assert_in_allowlist, assert_in_scope, assert_roe
+from app.core.callbacks import assert_safe_callback_url, encode_callback
 from app.core.correlator import correlate
 from app.core.reports import write_html_report, write_pdf_report
-from app.models import AuditEvent, Engagement, Finding, Job, JobStatus, Severity
+from app.models import AuditEvent, Engagement, Finding, Job, JobFinding, JobStatus, Severity
 from app.queue import clear_callback, clear_cancel, get_callback, is_cancel_requested
-from app.tool_catalog import DEFAULT_PIPELINE_TOOLS, filter_by_intensity, resolve_selected_tools
+from app.tool_catalog import (
+    DEFAULT_PIPELINE_TOOLS,
+    resolve_selected_tools,
+    validate_selection_for_intensity,
+)
 
 logger = logging.getLogger("ethoscan.orchestrator")
 
@@ -69,11 +74,20 @@ class JobCancelled(Exception):
     """Cancelamento solicitado durante o pipeline."""
 
 
-def audit(db: Session, engagement_id: int | None, action: str, detail: dict | None = None) -> None:
+def audit(
+    db: Session,
+    engagement_id: int | None,
+    action: str,
+    detail: dict | None = None,
+    *,
+    actor: str = "system",
+    client_ip: str | None = None,
+) -> None:
     db.add(
         AuditEvent(
             engagement_id=engagement_id,
-            actor="system",
+            actor=actor[:100],
+            client_ip=client_ip[:64] if client_ip else None,
             action=action,
             detail=detail or {},
         )
@@ -96,11 +110,24 @@ def _notify_callback(
 ) -> None:
     """POST best-effort no webhook registrado pelo cliente (API de integração/n8n).
 
-    Nunca falha o job: erro/timeout viram evento ``callback_failed`` no audit. A URL é
-    validada (http/https) no momento do registro, que exige credencial válida.
+    Nunca falha o job: erro/timeout/SSRF viram evento de audit. A URL é revalidada
+    (DNS + IP público) no momento do envio para mitigar DNS rebinding.
     """
     url = get_callback(job.id)
     if not url:
+        return
+    engagement_id = engagement.id if engagement else None
+    try:
+        assert_safe_callback_url(url)
+    except Exception as exc:  # webhook nunca pode derrubar o job
+        audit(
+            db,
+            engagement_id,
+            "callback_blocked",
+            {"job_id": job.id, "url": url, "error": str(exc)[:200]},
+        )
+        logger.warning("callback bloqueado (SSRF): %s", exc, extra={"job_id": job.id})
+        clear_callback(job.id)
         return
     payload = {
         "job_id": job.id,
@@ -114,19 +141,29 @@ def _notify_callback(
         "report_pdf_path": job.report_pdf_path,
         "finished_at": job.finished_at.isoformat() if job.finished_at else None,
     }
-    engagement_id = engagement.id if engagement else None
+    body, headers = encode_callback(payload, get_settings().ethoscan_callback_secret)
     try:
-        response = httpx.post(url, json=payload, timeout=CALLBACK_TIMEOUT_SECONDS)
+        response = httpx.post(
+            url,
+            content=body,
+            headers=headers,
+            timeout=CALLBACK_TIMEOUT_SECONDS,
+        )
         audit(
             db,
             engagement_id,
             "callback_sent",
-            {"job_id": job.id, "url": url, "status_code": response.status_code},
+            {
+                "job_id": job.id,
+                "url": url,
+                "status_code": response.status_code,
+                "signed": "X-Ethoscan-Signature" in headers,
+            },
         )
         logger.info(
             "callback enviado (HTTP %s)", response.status_code, extra={"job_id": job.id}
         )
-    except Exception as exc:  # noqa: BLE001 - webhook nunca derruba o pipeline
+    except Exception as exc:
         audit(
             db,
             engagement_id,
@@ -140,7 +177,7 @@ def _notify_callback(
 
 def _mark_cancelled(db: Session, job: Job, engagement: Engagement | None) -> None:
     job.status = JobStatus.cancelled
-    job.finished_at = datetime.now(timezone.utc)
+    job.finished_at = datetime.now(UTC)
     job.current_tool = None
     job.error = job.error or "Cancelado pelo operador"
     db.commit()
@@ -210,7 +247,7 @@ def _run_adapter_targets(
         assert_in_scope(target, scope_targets)
         try:
             last = adapter.run(target, job_dir, intensity)
-        except Exception as exc:  # noqa: BLE001 - falha de uma tool não derruba o pipeline
+        except Exception as exc:
             logger.warning(
                 "adapter %s levantou exceção: %s",
                 adapter.name,
@@ -245,16 +282,20 @@ def run_pipeline(db: Session, job_id: int) -> None:
         return
 
     try:
-        selected = _prune_redundant_tools(
-            filter_by_intensity(
-                _job_selected_tools(job),
-                engagement.intensity.value,
-            ),
-            engagement.intensity.value,
-        )
+        resolved = _job_selected_tools(job)
+        # Jobs explícitos antigos/DB editada: falhar em vez de filtrar em silêncio
+        # e acabar num pipeline diferente do pedido.
+        if job.selected_tools and not resolved:
+            raise RuntimeError(
+                "Seleção de tools não contém nenhuma tool executável; "
+                "edite o engagement/job para uma seleção válida."
+            )
+        if job.selected_tools:
+            validate_selection_for_intensity(resolved, engagement.intensity.value)
+        selected = _prune_redundant_tools(resolved, engagement.intensity.value)
         job.selected_tools = selected
         job.status = JobStatus.running
-        job.started_at = datetime.now(timezone.utc)
+        job.started_at = datetime.now(UTC)
         job.phase = "F0"
         job.progress = 2
         job.tool_runs = dict(job.tool_runs or {})
@@ -304,20 +345,23 @@ def run_pipeline(db: Session, job_id: int) -> None:
                 _persist_findings(db, engagement, job, raw_findings)
                 findings = (
                     db.query(Finding)
-                    .filter(Finding.job_id == job.id)
+                    .join(JobFinding, JobFinding.finding_id == Finding.id)
+                    .filter(JobFinding.job_id == job.id)
                     .order_by(Finding.id.asc())
                     .all()
                 )
+                # Estado final ANTES de gerar: o relatório deve dizer completed,
+                # não "running", e o progresso deve ser 100.
+                job.status = JobStatus.completed
+                job.phase = "F6"
+                job.progress = 100
+                job.finished_at = datetime.now(UTC)
+                job.current_tool = None
+                db.flush()
                 report = write_html_report(engagement, job, findings, job_dir)
                 pdf = write_pdf_report(engagement, job, findings, job_dir)
                 job.report_path = str(report)
                 job.report_pdf_path = str(pdf)
-                step += 1
-                job.progress = 100
-                job.phase = "F6"
-                job.status = JobStatus.completed
-                job.finished_at = datetime.now(timezone.utc)
-                job.current_tool = None
                 db.commit()
                 clear_cancel(job.id)
                 audit(
@@ -415,15 +459,15 @@ def run_pipeline(db: Session, job_id: int) -> None:
         db.commit()
     except JobCancelled:
         _mark_cancelled(db, job, engagement)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         job.status = JobStatus.failed
         job.error = str(exc)
-        job.finished_at = datetime.now(timezone.utc)
+        job.finished_at = datetime.now(UTC)
         job.current_tool = None
         db.commit()
         clear_cancel(job.id)
         logger.exception(
-            "job %s falhou: %s", job_id, exc, extra={"job_id": job_id, "status": "failed"}
+            "job %s falhou", job_id, extra={"job_id": job_id, "status": "failed"}
         )
         audit(
             db,
@@ -555,15 +599,20 @@ def _persist_findings(
     raw_findings,
 ) -> None:
     existing = {
-        f.fingerprint
-        for f in db.query(Finding).filter(Finding.engagement_id == engagement.id).all()
+        finding.fingerprint: finding
+        for finding in db.query(Finding)
+        .filter(Finding.engagement_id == engagement.id)
+        .all()
+    }
+    linked = {
+        link.finding_id
+        for link in db.query(JobFinding).filter(JobFinding.job_id == job.id).all()
     }
     for item in raw_findings:
-        fp = item.fingerprint()
-        if fp in existing:
-            continue
-        db.add(
-            Finding(
+        fingerprint = item.fingerprint()
+        finding = existing.get(fingerprint)
+        if finding is None:
+            finding = Finding(
                 engagement_id=engagement.id,
                 job_id=job.id,
                 title=item.title,
@@ -576,9 +625,13 @@ def _persist_findings(
                 cve=item.cve,
                 cwe=item.cwe,
                 remediation=item.remediation,
-                fingerprint=fp,
+                fingerprint=fingerprint,
                 mocked=bool(getattr(item, "mocked", False)),
             )
-        )
-        existing.add(fp)
+            db.add(finding)
+            db.flush()
+            existing[fingerprint] = finding
+        if finding.id not in linked:
+            db.add(JobFinding(job_id=job.id, finding_id=finding.id))
+            linked.add(finding.id)
     db.commit()

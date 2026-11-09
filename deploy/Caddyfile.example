@@ -2,7 +2,9 @@
 #   cp deploy/Caddyfile.example deploy/Caddyfile   # ajuste o domínio e o e-mail
 #   docker compose -f docker-compose.yml -f docker-compose.remote.yml up -d
 #
-# Use com ETHOSCAN_API_KEY forte. A API executa varreduras: trate como acesso privilegiado.
+# Requer a imagem customizada deploy/Dockerfile.caddy (rate_limit não existe na
+# imagem oficial caddy:2-alpine). Use com ETHOSCAN_API_KEY forte: a API executa
+# varreduras — trate como acesso privilegiado.
 
 {
 	email voce@exemplo.com

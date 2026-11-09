@@ -4,7 +4,6 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Optional
 
 import httpx
 import typer
@@ -134,7 +133,7 @@ def cancel_job(job_id: int = typer.Argument(...), api: str = DEFAULT_API) -> Non
 @app.command("report")
 def report_cmd(
     job_id: int = typer.Argument(...),
-    out: Optional[str] = typer.Option(None, "--out", "-o", help="Gravar HTML neste path"),
+    out: str | None = typer.Option(None, "--out", "-o", help="Gravar HTML neste path"),
     api: str = DEFAULT_API,
 ) -> None:
     """Mostra path do relatório e/ou descarrega o HTML."""
@@ -161,7 +160,7 @@ def report_cmd(
 
 @app.command("findings")
 def list_findings(
-    engagement_id: Optional[int] = typer.Option(None, "--engagement", "-e"),
+    engagement_id: int | None = typer.Option(None, "--engagement", "-e"),
     api: str = DEFAULT_API,
 ) -> None:
     """Lista achados."""

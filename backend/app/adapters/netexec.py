@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 
 from app.adapters.base import AdapterResult, BaseAdapter, RawFinding
+from app.core.targets import target_host
 from app.models import Severity
 
 _BINARIES = ("nxc", "netexec", "crackmapexec")
@@ -32,7 +33,7 @@ class NetExecAdapter(BaseAdapter):
         return "nxc"
 
     def _run_real(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
-        host = target.split("://")[-1].split("/")[0].split(":")[0]
+        host = target_host(target)
         out_file = job_dir / "netexec.txt"
         timeout = 90 if intensity == "safe" else (150 if intensity == "standard" else 240)
         # Apenas enum — sem -u/-p spray, sem -x/--exec-command
@@ -51,7 +52,7 @@ class NetExecAdapter(BaseAdapter):
         )
 
     def _run_mock(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
-        host = target.split("://")[-1].split("/")[0].split(":")[0]
+        host = target_host(target)
         content = (
             f"SMB {host} 445 [*] Windows 10 / Server 2019 (name:LAB) (domain:LAB) "
             f"(signing:True) (SMBv1:False)\n"

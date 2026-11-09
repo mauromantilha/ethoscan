@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 from app.adapters.base import AdapterResult, BaseAdapter, RawFinding
+from app.core.targets import target_host
 from app.models import Severity
 
 
@@ -16,7 +17,7 @@ class UnicornscanAdapter(BaseAdapter):
     binary = "unicornscan"
 
     def _run_real(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
-        host = target.split("://")[-1].split("/")[0].split(":")[0]
+        host = target_host(target)
         out_file = job_dir / "unicornscan.txt"
         if intensity == "safe":
             ports, timeout = "22,80,443,8080,8443", 90
@@ -46,7 +47,7 @@ class UnicornscanAdapter(BaseAdapter):
         )
 
     def _run_mock(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
-        host = target.split("://")[-1].split("/")[0].split(":")[0]
+        host = target_host(target)
         content = (
             f"TCP open {host}[80]\t\tfrom 127.0.0.1  ttl 64\n"
             f"TCP open {host}[443]\t\tfrom 127.0.0.1  ttl 64\n"

@@ -5,14 +5,23 @@ from __future__ import annotations
 import logging
 import signal
 import sys
+import threading
 import time
 
+from app import db as dbmod
 from app.config import get_settings
 from app.core.orchestrator import run_pipeline
-from app.db import SessionLocal, init_db
+from app.db import init_db
 from app.logging_conf import configure_logging
 from app.models import Job, JobStatus
-from app.queue import clear_cancel, ping_redis, pop_job
+from app.queue import (
+    ack_job,
+    clear_cancel,
+    ping_redis,
+    pop_job,
+    requeue_processing,
+    set_worker_heartbeat,
+)
 
 configure_logging()
 # libs de terceiros (redis, sqlalchemy) mantêm o handler do root
@@ -22,14 +31,14 @@ logger = logging.getLogger("ethoscan.worker")
 _running = True
 
 
-def _handle_signal(signum, _frame) -> None:  # noqa: ANN001
+def _handle_signal(signum, _frame) -> None:
     global _running
     logger.info("sinal %s — encerrando worker após job atual", signum)
     _running = False
 
 
 def process_one(job_id: int) -> None:
-    db = SessionLocal()
+    db = dbmod.SessionLocal()
     try:
         job = db.get(Job, job_id)
         if not job:
@@ -46,6 +55,14 @@ def process_one(job_id: int) -> None:
         run_pipeline(db, job_id)
     finally:
         db.close()
+        # Mesmo que o pipeline falhe, o job sai da lista de processamento.
+        ack_job(job_id)
+
+
+def _heartbeat_loop(stop_event: threading.Event) -> None:
+    while not stop_event.is_set():
+        set_worker_heartbeat()
+        stop_event.wait(10)
 
 
 def main() -> int:
@@ -64,21 +81,35 @@ def main() -> int:
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    while _running:
-        try:
-            job_id = pop_job(timeout=1)
-        except Exception as exc:  # noqa: BLE001
-            logger.error("erro ao ler fila: %s", exc)
-            time.sleep(2)
-            continue
-        if job_id is None:
-            continue
-        try:
-            process_one(job_id)
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("falha ao processar job %s: %s", job_id, exc)
+    requeued = requeue_processing()
+    if requeued:
+        logger.warning("recuperados %s job(s) órfão(s) do worker %s", requeued, settings.worker_id)
 
-    logger.info("worker parado")
+    heartbeat_stop = threading.Event()
+    heartbeat = threading.Thread(
+        target=_heartbeat_loop, args=(heartbeat_stop,), name="ethoscan-heartbeat", daemon=True
+    )
+    heartbeat.start()
+    set_worker_heartbeat()
+
+    try:
+        while _running:
+            try:
+                job_id = pop_job(timeout=1)
+            except Exception as exc:
+                logger.error("erro ao ler fila: %s", exc)
+                time.sleep(2)
+                continue
+            if job_id is None:
+                continue
+            try:
+                process_one(job_id)
+            except Exception:
+                logger.exception("falha ao processar job %s", job_id)
+    finally:
+        heartbeat_stop.set()
+        heartbeat.join(timeout=2)
+        logger.info("worker parado")
     return 0
 
 

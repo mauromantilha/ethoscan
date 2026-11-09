@@ -6,6 +6,7 @@ e o webhook de conclusão (sem depender de rede/Redis reais).
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -100,6 +101,9 @@ def test_scan_validations(client):
     assert _run_scan(client, targets=["com"])["response"].status_code == 400
     assert _run_scan(client, targets=[])["response"].status_code == 422
     assert _run_scan(client, selected_tools=["tool-inexistente"])["response"].status_code == 400
+    assert _run_scan(client, selected_tools=[])["response"].status_code == 400
+    assert _run_scan(client, selected_tools=["burpsuite"])["response"].status_code == 400
+    assert _run_scan(client, selected_tools=["hydra"])["response"].status_code == 400
     bad_callback = _run_scan(client, callback_url="ftp://host/hook")["response"]
     assert bad_callback.status_code == 400
 
@@ -132,6 +136,29 @@ def test_scan_reports_callback_not_registered_without_redis(client):
     assert data["callback_registered"] is False
 
 
+def test_scan_external_ref_is_idempotent(client):
+    first = _run_scan(client, external_ref="n8n-idem-1")
+    assert first["response"].status_code == 200
+    first_data = first["response"].json()
+    first["enqueue_mock"].assert_called_once_with(first_data["job_id"])
+
+    second = _run_scan(client, external_ref="n8n-idem-1")
+    assert second["response"].status_code == 200
+    second_data = second["response"].json()
+    assert second_data["job_id"] == first_data["job_id"]
+    assert second_data["engagement_id"] == first_data["engagement_id"]
+    second["enqueue_mock"].assert_not_called()
+
+    db = dbmod.SessionLocal()
+    try:
+        assert (
+            db.query(Engagement).filter(Engagement.external_ref == "n8n-idem-1").count() == 1
+        )
+        assert db.query(Job).filter(Job.id == first_data["job_id"]).count() == 1
+    finally:
+        db.close()
+
+
 def test_unknown_job_status_is_404(client):
     assert client.get(STATUS.format(job_id=999999)).status_code == 404
 
@@ -140,7 +167,9 @@ def test_service_key_is_accepted(monkeypatch):
     settings = SimpleNamespace(
         ethoscan_api_key="master-key",
         ethoscan_service_keys="n8n-key, outra-key",
+        service_keys=["n8n-key", "outra-key"],
         ethoscan_session_prefix="ethoscan:session:",
+        ethoscan_session_epoch=1,
     )
     monkeypatch.setattr(security, "get_settings", lambda: settings)
     assert security.credential_accepted("master-key") is True
@@ -179,14 +208,19 @@ def test_notify_callback_posts_payload_and_audits_success(client):
         engagement, job = _job_for_callback(db)
         posted: dict = {}
 
-        def fake_post(url, json=None, timeout=None):  # noqa: ANN001 - assinatura do httpx.post
+        def fake_post(url, content=None, headers=None, timeout=None):
             posted["url"] = url
-            posted["payload"] = json
+            posted["payload"] = json.loads(content)
+            posted["headers"] = headers
             return SimpleNamespace(status_code=200)
 
         with (
             patch(
                 "app.core.orchestrator.get_callback",
+                return_value="https://n8n.local/webhook/x",
+            ),
+            patch(
+                "app.core.orchestrator.assert_safe_callback_url",
                 return_value="https://n8n.local/webhook/x",
             ),
             patch("app.core.orchestrator.httpx.post", side_effect=fake_post),
@@ -199,6 +233,7 @@ def test_notify_callback_posts_payload_and_audits_success(client):
         assert posted["payload"]["job_id"] == job.id
         assert posted["payload"]["findings_count"] == 9
         assert posted["payload"]["report_pdf_path"] == "/tmp/report.pdf"
+        assert "X-Ethoscan-Timestamp" in posted["headers"]
         cleared.assert_called_once_with(job.id)
         assert "callback_sent" in {event.action for event in db.query(AuditEvent).all()}
     finally:
@@ -212,6 +247,10 @@ def test_notify_callback_failure_is_recorded_and_does_not_raise(client):
         with (
             patch(
                 "app.core.orchestrator.get_callback",
+                return_value="https://n8n.local/webhook/x",
+            ),
+            patch(
+                "app.core.orchestrator.assert_safe_callback_url",
                 return_value="https://n8n.local/webhook/x",
             ),
             patch("app.core.orchestrator.httpx.post", side_effect=RuntimeError("boom")),

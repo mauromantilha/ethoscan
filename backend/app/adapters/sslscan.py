@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.adapters.base import AdapterResult, BaseAdapter, RawFinding
+from app.core.targets import target_host
 from app.models import Severity
 
 
@@ -11,7 +12,7 @@ class SslscanAdapter(BaseAdapter):
     binary = "sslscan"
 
     def _run_real(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
-        host = target.replace("https://", "").replace("http://", "").split("/")[0]
+        host = target_host(target)
         out_file = job_dir / "sslscan.txt"
         timeout = 45 if intensity == "safe" else (75 if intensity == "standard" else 120)
         cmd = ["sslscan", "--no-colour", "--no-heartbleed", host]

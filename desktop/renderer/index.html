@@ -14,6 +14,7 @@
       href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;650&display=swap"
       rel="stylesheet"
     />
+    <script src="theme.js"></script>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -21,13 +22,21 @@
       <header class="hero">
         <div class="hero-top">
           <h1 class="brand">Ethoscan</h1>
-          <span class="version-label" id="appVersion">v0.1.4</span>
+          <span class="version-label" id="appVersion">v0.3.0</span>
+          <button class="theme-toggle" id="btnTheme" type="button" aria-label="Alternar tema">
+            Tema: sistema
+          </button>
         </div>
         <p class="tagline">
           Assessment ético local — escopo allowlist, RoE e pipeline F0–F6. Intensidade
           recomendada: <strong>safe</strong>.
         </p>
       </header>
+
+      <aside class="mock-banner" id="mockBanner" role="status" hidden>
+        <strong>Modo mock ativo:</strong> ferramentas em falta podem produzir achados simulados.
+        Confirme o badge <strong>MOCK</strong> antes de usar um relatório como evidência real.
+      </aside>
 
       <aside class="update-banner" id="updateBanner" data-state="idle" hidden aria-live="polite">
         <span class="update-label">Atualização</span>
@@ -69,12 +78,12 @@
           </div>
           <details class="advanced">
             <summary>Avançado · X-API-Key</summary>
-            <div class="field" style="margin-top: 0.75rem">
+            <div class="field mt-md">
               <label for="apiKey">X-API-Key (alternativa ao login)</label>
               <input id="apiKey" type="password" autocomplete="off" spellcheck="false" />
             </div>
           </details>
-          <div class="row" style="margin-top: 1rem">
+          <div class="row mt-lg">
             <button class="btn" id="btnLogin" type="submit">Entrar</button>
             <button class="btn secondary" id="btnSkipAuth" type="button" hidden>
               Continuar sem auth
@@ -121,7 +130,7 @@
             <p class="meta empty-hint" id="dashboardHint">
               Crie um engagement ou abra o Histórico para relatórios anteriores.
             </p>
-            <div class="row" style="margin-top: 0.85rem">
+            <div class="row mt-md">
               <button class="btn" type="button" data-goto="new">Novo engagement</button>
               <button class="btn secondary" type="button" data-goto="history">Ver histórico</button>
             </div>
@@ -161,12 +170,12 @@
                 </div>
                 <details class="advanced tools-advanced">
                   <summary>Avançado · seleção de tools</summary>
-                  <p class="meta" id="toolCatalogHint" style="margin-top: 0.65rem">
+                  <p class="meta mt-sm" id="toolCatalogHint">
                     Vazio = pipeline clássico. Badges: executável / só GUI / inventário.
                     Instalado ≠ selecionável no job.
                   </p>
                   <div class="tool-select" id="toolCatalog"></div>
-                  <div class="row" style="margin-top: 0.5rem">
+                  <div class="row mt-xs">
                     <button class="btn secondary" type="button" id="btnLaunchBurp" hidden>
                       Lançar Burp Suite (GUI)
                     </button>
@@ -179,7 +188,7 @@
                     ético.
                   </span>
                 </label>
-                <div class="row" style="margin-top: 1rem">
+                <div class="row mt-lg">
                   <button class="btn" type="submit" id="btnCreate">Criar engagement</button>
                 </div>
               </form>
@@ -259,7 +268,7 @@
         </header>
         <p class="meta" id="progressJobMeta">Job #—</p>
         <div class="progress-bar-wrap" aria-hidden="true">
-          <div class="progress-bar" id="progressBar" style="width: 0%"></div>
+          <div class="progress-bar" id="progressBar"></div>
         </div>
         <p class="progress-pct" id="progressPct">0%</p>
         <div class="phase-track" id="progressPhases"></div>

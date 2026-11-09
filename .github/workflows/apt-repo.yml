@@ -1,0 +1,91 @@
+name: apt-repo
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag do release (ex.: v0.1.4)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apt-repo-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publicar repositório APT (gh-pages)
+    if: github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev apt-utils gnupg
+
+      - name: Import APT signing key
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: |
+          if [ -z "${APT_GPG_PRIVATE_KEY:-}" ]; then
+            echo "Defina o secret APT_GPG_PRIVATE_KEY (chave GPG privada)." >&2
+            exit 1
+          fi
+          printf '%s' "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
+          gpg --list-secret-keys --keyid-format LONG
+
+      - name: Download .deb from release
+        run: |
+          mkdir -p apt-repo/pool/main/e/ethoscan
+          gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'ethoscan_*_amd64.deb' \
+            --dir apt-repo/pool/main/e/ethoscan
+
+      - name: Build APT metadata
+        env:
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          cd apt-repo
+          mkdir -p dists/stable/main/binary-amd64
+          dpkg-scanpackages --multiversion pool /dev/null \
+            > dists/stable/main/binary-amd64/Packages
+          gzip -9c dists/stable/main/binary-amd64/Packages \
+            > dists/stable/main/binary-amd64/Packages.gz
+          apt-ftparchive \
+            -o APT::FTPArchive::Release::Origin=Ethoscan \
+            -o APT::FTPArchive::Release::Label=Ethoscan \
+            -o APT::FTPArchive::Release::Suite=stable \
+            -o APT::FTPArchive::Release::Codename=stable \
+            -o APT::FTPArchive::Release::Architectures=amd64 \
+            -o APT::FTPArchive::Release::Components=main \
+            release dists/stable > dists/stable/Release
+          gpg --batch --yes --pinentry-mode loopback \
+            --passphrase "${APT_GPG_PASSPHRASE:-}" \
+            --clearsign -o dists/stable/InRelease dists/stable/Release
+          gpg --batch --yes --pinentry-mode loopback \
+            --passphrase "${APT_GPG_PASSPHRASE:-}" \
+            --armor --detach-sign -o dists/stable/Release.gpg dists/stable/Release
+          gpg --armor --export > ethoscan-archive-keyring.gpg
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./apt-repo
+          publish_branch: gh-pages
+          keep_files: true
+          user_name: github-actions[bot]
+          user_email: github-actions[bot]@users.noreply.github.com

@@ -11,17 +11,17 @@ o desktop).
 
 from __future__ import annotations
 
-from urllib.parse import urlparse
-
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.core.authz import assert_targets_allowed, validate_scope
+from app.core.callbacks import validate_callback_url
 from app.core.orchestrator import audit
-from app.core.security import require_api_key
+from app.core.security import credential_actor, require_api_key
 from app.db import get_db
-from app.models import Engagement, Finding, Job, JobStatus
+from app.models import Engagement, Finding, Job, JobFinding, JobStatus
 from app.queue import enqueue_job, get_callback, ping_redis, set_callback
 from app.schemas import (
     IntegrationJobStatus,
@@ -29,7 +29,7 @@ from app.schemas import (
     IntegrationScanRequest,
     IntegrationScanResponse,
 )
-from app.tool_catalog import validate_selected_tools
+from app.tool_catalog import validate_selected_tools, validate_selection_for_intensity
 
 router = APIRouter(
     prefix="/api/integrations/n8n",
@@ -39,7 +39,7 @@ router = APIRouter(
 
 TERMINAL_STATUSES = ("completed", "failed", "cancelled")
 POLL_AFTER_SECONDS = 15  # ritmo sugerido de polling enquanto o job roda
-INTEGRATION_VERSION = "1.0"  # contrato da integração (independente da versão da API)
+INTEGRATION_VERSION = "1.1"  # contrato da integração (independente da versão da API)
 
 
 def _links(job_id: int) -> dict[str, str]:
@@ -52,13 +52,37 @@ def _links(job_id: int) -> dict[str, str]:
     }
 
 
+def _existing_scan_response(
+    engagement: Engagement, job: Job
+) -> IntegrationScanResponse:
+    """Replay idempotente: devolve o job já criado para o mesmo external_ref."""
+    return IntegrationScanResponse(
+        engagement_id=engagement.id,
+        job_id=job.id,
+        status=job.status,
+        phase=job.phase,
+        callback_registered=bool(get_callback(job.id)),
+        message="Replay idempotente: job existente retornado para o mesmo external_ref.",
+        **_links(job.id),
+    )
+
+
+def _latest_job(db: Session, engagement_id: int) -> Job | None:
+    return (
+        db.query(Job)
+        .filter(Job.engagement_id == engagement_id)
+        .order_by(Job.id.desc())
+        .first()
+    )
+
+
 def _validate_callback(url: str | None) -> str | None:
     if not url:
         return None
-    parsed = urlparse(url.strip())
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise HTTPException(400, "callback_url precisa ser uma URL http(s) válida")
-    return url.strip()
+    try:
+        return validate_callback_url(url)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @router.get("/manifest", response_model=IntegrationManifest)
@@ -108,11 +132,27 @@ def manifest() -> IntegrationManifest:
         },
         notes=[
             "URLs nas respostas são relativas: prefixe com o seu base URL da API.",
-            "O worker envia o callback uma única vez (timeout 5s, best-effort) e registra no audit "
-            "como callback_sent/callback_failed.",
+            (
+                "O worker envia o callback uma única vez (timeout 5s, best-effort) e registra "
+                "no audit como callback_sent/callback_failed."
+            ),
             "Sem callback: faça polling do status_url até status ∈ terminal_statuses.",
-            "Erros: 401 key inválida · 403 RoE não confirmado · 400 alvo/tools inválidos · "
-            "503 Redis/worker fora do ar.",
+            (
+                "selected_tools omitido/null = pipeline clássico; lista vazia, tool GUI/inventário "
+                "ou tool incompatível com intensity = 400."
+            ),
+            (
+                "external_ref é idempotente: repetir o scan com o mesmo valor devolve o job "
+                "existente sem criar outro."
+            ),
+            (
+                "callback_url é revalidado contra SSRF no envio; com ETHOSCAN_CALLBACK_SECRET "
+                "o corpo é assinado via X-Ethoscan-Signature/timestamp."
+            ),
+            (
+                "Erros: 401 key inválida · 403 RoE não confirmado · 400 alvo/tools inválidos · "
+                "429 login rate limit · 503 Redis/worker fora do ar."
+            ),
         ],
     )
 
@@ -120,16 +160,27 @@ def manifest() -> IntegrationManifest:
 @router.post("/scan", response_model=IntegrationScanResponse)
 def start_scan(
     payload: IntegrationScanRequest,
+    request: Request,
     db: Session = Depends(get_db),
 ) -> IntegrationScanResponse:
     """Cria o engagement e enfileira o pipeline em uma única chamada."""
     if not payload.roe_acknowledged:
         raise HTTPException(403, "roe_acknowledged deve ser true (autorização explícita).")
 
+    ref = (payload.external_ref or "").strip()
+    if ref:
+        existing = db.query(Engagement).filter(Engagement.external_ref == ref).first()
+        if existing:
+            job = _latest_job(db, existing.id)
+            if job:
+                return _existing_scan_response(existing, job)
+            raise HTTPException(409, f"external_ref '{ref}' já existe sem job associado.")
+
     scope = validate_scope(payload.targets)
     assert_targets_allowed(scope, get_settings().allowlist_targets)
     try:
         selected = validate_selected_tools(payload.selected_tools)
+        validate_selection_for_intensity(selected, payload.intensity.value)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
@@ -140,7 +191,6 @@ def start_scan(
         )
 
     callback_url = _validate_callback(payload.callback_url)
-    ref = (payload.external_ref or "").strip()
     name = f"{payload.name.strip()} [{ref}]" if ref else payload.name.strip()
 
     engagement = Engagement(
@@ -150,11 +200,23 @@ def start_scan(
         roe_acknowledged=True,
         roe_text="Autorização confirmada via API de integração (n8n).",
         notes=f"origem=n8n external_ref={ref}" if ref else "origem=n8n",
+        external_ref=ref or None,
         selected_tools=selected,
     )
     db.add(engagement)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        existing = db.query(Engagement).filter(Engagement.external_ref == ref).first()
+        if existing:
+            job = _latest_job(db, existing.id)
+            if job:
+                return _existing_scan_response(existing, job)
+        raise HTTPException(409, f"external_ref '{ref}' já está em uso.") from exc
     db.refresh(engagement)
+    actor = credential_actor(request.headers.get("X-API-Key"))
+    client_ip = request.client.host if request.client else None
     audit(
         db,
         engagement.id,
@@ -165,6 +227,8 @@ def start_scan(
             "selected_tools": selected,
             "callback_url": callback_url,
         },
+        actor=actor,
+        client_ip=client_ip,
     )
 
     job = Job(
@@ -178,15 +242,22 @@ def start_scan(
     db.add(job)
     db.commit()
     db.refresh(job)
-    audit(db, engagement.id, "job_queued", {"job_id": job.id, "selected_tools": selected})
 
     try:
         enqueue_job(job.id)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         job.status = JobStatus.failed
         job.error = f"Falha ao enfileirar no Redis: {exc}"
         db.commit()
         raise HTTPException(503, job.error) from exc
+    audit(
+        db,
+        engagement.id,
+        "job_queued",
+        {"job_id": job.id, "selected_tools": selected},
+        actor=actor,
+        client_ip=client_ip,
+    )
 
     callback_registered = bool(callback_url) and set_callback(job.id, callback_url or "")
     return IntegrationScanResponse(
@@ -207,7 +278,12 @@ def job_status(job_id: int, db: Session = Depends(get_db)) -> IntegrationJobStat
     if not job:
         raise HTTPException(404, "Job não encontrado")
 
-    findings_count = db.query(Finding).filter(Finding.job_id == job.id).count()
+    findings_count = (
+        db.query(Finding)
+        .join(JobFinding, JobFinding.finding_id == Finding.id)
+        .filter(JobFinding.job_id == job.id)
+        .count()
+    )
     is_terminal = job.status.value in TERMINAL_STATUSES
     return IntegrationJobStatus(
         job_id=job.id,

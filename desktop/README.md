@@ -13,6 +13,12 @@ Após login: escolha tools no formulário (checkboxes; desativadas se não insta
 - Redis + worker (`python -m app.worker`)
 - Uso **apenas** em alvos autorizados / lab próprio
 
+## Tema
+
+A UI usa o tema do sistema por default. O botão **Tema** no cabeçalho alterna
+**sistema → claro → escuro**; a escolha fica em `localStorage` e é aplicada antes do
+primeiro paint (sem flash).
+
 ## Login local
 
 1. No `.env` da API, configure utilizador + hash bcrypt (ver `.env.example`):
@@ -33,22 +39,25 @@ Após login: escolha tools no formulário (checkboxes; desativadas se não insta
 2. Suba API + Redis + worker.
 3. Abra o desktop, indique a URL base, utilizador e palavra-passe → **Entrar**.
 4. A sessão (token + username + URL) fica em `ethoscan-desktop.json` no userData; **Sair** limpa o token.
+   O token é cifrado com `safeStorage` quando o keyring do SO está disponível (fallback:
+   ficheiro com permissões `0600`). `config:get` devolve apenas `hasApiKey`, nunca o token.
 5. Na app: health/pipeline tools, inventário Kali, fases F0–F6, engagements/jobs/findings.
 
 Com `ETHOSCAN_DISABLE_AUTH=true` (lab puro), o desktop pode continuar sem login.
 
 ## Atualizações automáticas
 
-A app empacotada (v0.1.2+) usa [electron-updater](https://www.electron.build/auto-update) com feed nos [GitHub Releases](https://github.com/mauromantilha/ethoscan/releases) do repositório `mauromantilha/ethoscan`.
+A app empacotada usa [electron-updater](https://www.electron.build/auto-update) com feed nos [GitHub Releases](https://github.com/mauromantilha/ethoscan/releases) do repositório `mauromantilha/ethoscan`.
 
 - Verifica ao **arranque** (mesmo se a API local estiver offline) e de novo ao **conectar / login** (e no botão **Verificar** / **Atualizar**).
 - UI em pt-BR: a verificar / disponível / a descarregar / pronta (reiniciar) / atualizado / erro.
 - **Windows:** o auto-update aplica-se à instalação **NSIS**. O build **portable** continua a ser gerado, mas **não** atualiza in-place de forma fiável — use o instalador NSIS.
 - **Linux:** AppImage pode atualizar; `.deb` tipicamente exige reinstalar o pacote.
 - Sem code signing por agora (uso lab/privado). O Windows SmartScreen pode avisar em binários não assinados.
+  Para lab/offline, desative o updater com `ETHOSCAN_DISABLE_UPDATER=1` ao arrancar a app.
 - Em `npm start` (dev) o updater é no-op e mostra que só funciona na app empacotada.
 
-**Primeira instalação de 0.1.2:** descarregar manualmente o instalador do release. Versões seguintes (0.1.3+) atualizam sozinhas quando online.
+**Primeira instalação:** descarregue manualmente o instalador do release. Versões seguintes atualizam sozinhas quando online (NSIS/AppImage; `.deb` via `apt`).
 
 ## Desenvolvimento (sem empacotar)
 
@@ -76,8 +85,11 @@ npm run dist
 
 | Script | Resultado típico |
 |--------|------------------|
-| `dist:linux` | `Ethoscan-0.1.2-linux-x86_64.AppImage`, `Ethoscan-0.1.2-linux-amd64.deb` |
-| `dist:win` | `Ethoscan-0.1.2-win-x64.exe` (NSIS), `Ethoscan-0.1.2-win-x64-portable.exe` |
+| `dist:linux` | `Ethoscan-0.3.0-x86_64.AppImage`, `ethoscan_0.3.0_amd64.deb` |
+| `dist:win` | `Ethoscan-0.3.0-win-x64.exe` (NSIS), `Ethoscan-0.3.0-win-x64-portable.exe` |
+
+No Debian/Ubuntu, instale o `.deb` com `sudo apt install ./ethoscan_0.3.0_amd64.deb`
+(ou `./scripts/install-deb.sh`); ver [`docs/desktop-linux.md`](../docs/desktop-linux.md).
 
 Cross-compilar Windows a partir de Linux não é o caminho suportado; use o workflow de CI ou uma máquina Windows.
 
@@ -90,8 +102,8 @@ O workflow [`.github/workflows/desktop-release.yml`](../.github/workflows/deskto
 
    ```bash
    git checkout main && git pull
-   git tag -a v0.1.2 -m "Ethoscan Desktop v0.1.2"
-   git push origin v0.1.2
+   git tag -a v0.3.0 -m "Ethoscan Desktop v0.3.0"
+   git push origin v0.3.0
    ```
 
 3. O CI gera artefactos Linux (ubuntu) e Windows (`*.exe`, `latest.yml`, blockmaps), e anexa-os a um [GitHub Release](https://github.com/mauromantilha/ethoscan/releases) com o mesmo nome da tag

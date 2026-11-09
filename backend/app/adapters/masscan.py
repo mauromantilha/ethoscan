@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 from app.adapters.base import AdapterResult, BaseAdapter, RawFinding
+from app.core.targets import target_host
 from app.models import Severity
 
 
@@ -14,7 +15,7 @@ class MasscanAdapter(BaseAdapter):
     binary = "masscan"
 
     def _run_real(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
-        host = target.split("://")[-1].split("/")[0].split(":")[0]
+        host = target_host(target)
         out_file = job_dir / "masscan.txt"
         if intensity == "safe":
             ports, rate, timeout = "22,80,443,8080,8443", "200", 60
@@ -48,10 +49,11 @@ class MasscanAdapter(BaseAdapter):
         )
 
     def _run_mock(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
+        host = target_host(target)
         content = (
             f"#masscan mock\n"
-            f"open tcp 80 {target.split('://')[-1].split('/')[0]} 0\n"
-            f"open tcp 443 {target.split('://')[-1].split('/')[0]} 0\n"
+            f"open tcp 80 {host} 0\n"
+            f"open tcp 443 {host} 0\n"
         )
         path = job_dir / "masscan.txt"
         path.write_text(content)

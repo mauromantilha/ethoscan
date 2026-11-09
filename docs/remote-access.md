@@ -59,8 +59,14 @@ termina — sem polling:
  "finished_at":"2026-10-01T03:52:51.238377+00:00"}
 ```
 
-O envio fica registrado no audit como `callback_sent` / `callback_failed`. Sem callback, faça
-polling do `status_url` respeitando `poll_after_seconds`.
+O envio fica registrado no audit como `callback_sent` / `callback_failed` / `callback_blocked`.
+O worker resolve o host no momento do envio e recusa loopback/privado/link-local (anti-SSRF).
+Defina `ETHOSCAN_CALLBACK_SECRET` para assinar o corpo com HMAC-SHA256: headers
+`X-Ethoscan-Timestamp` e `X-Ethoscan-Signature: sha256=HMAC(secret, timestamp + "." + corpo)`.
+Sem callback, faça polling do `status_url` respeitando `poll_after_seconds`.
+
+**Idempotência:** envie `external_ref` (ex.: id da execução do n8n). Repetir o `POST /scan` com o
+mesmo `external_ref` devolve o mesmo `engagement_id`/`job_id` sem criar outro scan.
 
 **Chave dedicada para o n8n** (revogável sem trocar a master key nem o login do desktop):
 
@@ -170,8 +176,11 @@ docker compose -f docker-compose.yml -f docker-compose.remote.yml up -d
 ```
 
 O override **fecha a 8000/3000 no host** e publica só o Caddy (80/443, TLS automático) com rate
-limit por IP, log JSON e (comentado) allowlist por IP de origem. A API roda com `--proxy-headers`,
-então o IP real do n8n aparece nos logs/audit.
+limit por IP, log JSON e (comentado) allowlist por IP de origem. O Caddy usa
+`deploy/Dockerfile.caddy` porque o módulo `rate_limit` não existe na imagem oficial
+`caddy:2-alpine`. O override também define `ETHOSCAN_MODE=remote`, desliga mock e exige
+`ETHOSCAN_API_KEY` forte no `.env`. A API roda com `--proxy-headers`, então o IP real do n8n
+aparece nos logs/audit.
 
 ### 5. n8n em VM OCI (`mk-server`)
 
@@ -269,7 +278,8 @@ docker compose -f docker-compose.yml -f docker-compose.remote.yml up -d
 - [ ] `ETHOSCAN_API_KEY` forte e rotacionada (`openssl rand -hex 32`); atualize no `.env` e no
       credential do n8n. A UI web usa `NEXT_PUBLIC_API_KEY` **embutida no bundle** → exige
       `docker compose build web` depois de trocar.
-- [ ] `ETHOSCAN_DISABLE_AUTH=false` (nunca exponha com auth desligada).
+- [ ] `ETHOSCAN_MODE=remote` (o override do compose já define) e `ETHOSCAN_DISABLE_AUTH=false`
+      (nunca exponha com auth desligada; fora de `local` a API não sobe sem auth).
 - [ ] **TLS** ponta a ponta (proxy/túnel): sem ele a key trafega em claro.
 - [ ] Restrição por origem: IP allowlist (`ufw` / `remote_ip` no Caddy) ou Cloudflare Access.
 - [ ] `ETHOSCAN_ALLOWLIST` (CSV de hosts/IPs/CIDRs) para limitar globalmente **o que** pode ser
@@ -290,4 +300,4 @@ docker compose -f docker-compose.yml -f docker-compose.remote.yml up -d
 |---|---|---|
 | Sem rate limit na app | rate limit no Caddy/Cloudflare | middleware (ex.: slowapi) |
 | Sem webhook de conclusão nos endpoints clássicos | use a API de integração (`callback_url`) ou polling | — |
-| 1 job por vez (single-node) | enfileirar e acompanhar | `docker compose up -d --scale worker=3` |
+| 1 job por vez (single-node) | enfileirar e acompanhar | `ETHOSCAN_WORKER_ID` único por réplica antes de escalar |

@@ -16,7 +16,6 @@ from app.adapters.whatweb import WhatWebAdapter
 from app.adapters.zap import ZapAdapter
 from app.config import get_settings
 
-
 # Pipeline clássico (backward compatible quando selected_tools vazio).
 REQUIRED_TOOLS = ("nmap", "whatweb", "gobuster", "sslscan", "nuclei")
 

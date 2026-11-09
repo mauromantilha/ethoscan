@@ -9,11 +9,18 @@ venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 node_modules/
 .next/
 out/
 dist/
 build/
+# Recursos de build do electron-builder (ícones/desktop entry) são versionados.
+!desktop/build/
+!desktop/build/**
 desktop/release/
 desktop/*.AppImage
 desktop/*.deb
@@ -22,6 +29,9 @@ desktop/*.exe
 *.log
 artifacts/
 data/
+*.db
+*.sqlite
+*.sqlite3
 .DS_Store
 *.qcow2
 .idea/

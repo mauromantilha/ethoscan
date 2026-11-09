@@ -39,8 +39,9 @@ def test_lab_inventory_reports_availability(monkeypatch):
 
 
 def test_login_issues_session_token(tmp_path, monkeypatch):
-    from app.config import get_settings
     from fastapi.testclient import TestClient
+
+    from app.config import get_settings
 
     password = "mauro-lab-pass"
     monkeypatch.setenv("ETHOSCAN_DISABLE_AUTH", "false")
@@ -52,12 +53,13 @@ def test_login_issues_session_token(tmp_path, monkeypatch):
     (tmp_path / "art").mkdir()
     get_settings.cache_clear()
 
-    from app import db as dbmod
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
-    from app.db import Base
-    from app import models  # noqa: F401
+
     import app.main as mainmod
+    from app import db as dbmod
+    from app import models  # noqa: F401
+    from app.db import Base
 
     dbmod.engine = create_engine(
         f"sqlite:///{tmp_path / 'login.db'}", connect_args={"check_same_thread": False}
@@ -102,13 +104,24 @@ def test_login_issues_session_token(tmp_path, monkeypatch):
     after = c.get("/api/engagements", headers={"X-API-Key": body["token"]})
     assert after.status_code == 401
 
+    from app import db as dbmod
+    from app.models import AuditEvent
+
+    db = dbmod.SessionLocal()
+    try:
+        actions = {event.action for event in db.query(AuditEvent).all()}
+    finally:
+        db.close()
+    assert {"auth_login_failed", "auth_login_success", "auth_logout"} <= actions
+
     monkeypatch.setenv("ETHOSCAN_DISABLE_AUTH", "true")
     get_settings.cache_clear()
 
 
 def test_api_key_still_works_alongside_local_user(tmp_path, monkeypatch):
-    from app.config import get_settings
     from fastapi.testclient import TestClient
+
+    from app.config import get_settings
 
     monkeypatch.setenv("ETHOSCAN_DISABLE_AUTH", "false")
     monkeypatch.setenv("ETHOSCAN_API_KEY", "master-lab-key")
@@ -119,12 +132,13 @@ def test_api_key_still_works_alongside_local_user(tmp_path, monkeypatch):
     (tmp_path / "art").mkdir()
     get_settings.cache_clear()
 
-    from app import db as dbmod
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
-    from app.db import Base
-    from app import models  # noqa: F401
+
     import app.main as mainmod
+    from app import db as dbmod
+    from app import models  # noqa: F401
+    from app.db import Base
 
     dbmod.engine = create_engine(
         f"sqlite:///{tmp_path / 'both.db'}", connect_args={"check_same_thread": False}

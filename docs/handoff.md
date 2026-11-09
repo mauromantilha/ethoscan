@@ -3,12 +3,15 @@
 > Documento operacional para **retomar o trabalho** (agente ou humano) sem reler a conversa toda.
 > Atualize ao mudar o estado. **Nunca coloque segredos aqui**: valores vivem no `.env` (gitignored).
 
-## Onde o projeto está (2026-09-30)
+## Onde o projeto está (2026-11-09)
 
-- `main` = `f1095a8` — PRs **#12** (integração n8n + deploy) e **#13** (allowlist + sessões) mergeados;
-  #11 antes deles; #10 ficou **fechado** (foi retomado em partes no #12/#13).
-- Suíte: **67 passed** (`cd backend && .venv/bin/pytest -q`). CI: `.github/workflows/smoke.yml`
-  (pytest + `scripts/smoke.sh`) roda em cada PR/push.
+- `main` = `34f5d12` — PRs **#12** (integração n8n + deploy), **#13** (allowlist + sessões) e
+  **#14** (handoff) mergeados; as fases 0–7 desta revisão estão na working tree/PR pendente.
+- **Release 0.3.0 preparado** (API/desktop/frontend + changelog), mas **tag/release ainda não
+  publicados**; publicação exige confirmação e credenciais.
+- Suíte: **126 passed** (`cd backend && .venv/bin/pytest -q`). CI: `.github/workflows/smoke.yml`
+  roda ruff, pytest com cobertura mínima de 70%, build do frontend, package do desktop e shellcheck
+  em cada PR/push.
 - Stack Docker no host do Ethoscan (LAN `192.168.0.7`) **rodando**: `api` (rede `:8000`, `--proxy-headers`),
   `worker`, `redis` (rede interna, AOF, sem porta no host), `postgres` (loopback `:15432`), `web` (loopback `:3000`).
 - Ambiente **limpo**: 0 engagements/jobs; sessões de teste revogadas no Redis.
@@ -48,6 +51,36 @@
 
 ## Decisões de design que não são óbvias
 
+- **Auth fail-closed**: `ETHOSCAN_SERVICE_KEYS` também ativa auth. Fora de `mode=local`
+  (`remote`/`production`), falta de auth ou chave default (`change-me-local`, etc.) **impede
+  o arranque**. Em `local`, auth desligada só gera aviso. Mock default é `false`.
+- **Seleção de tools**: omitir/`null` = pipeline clássico; lista vazia explícita, tool
+  GUI/inventário ou tool incompatível com a intensidade → **400** (sem fallback silencioso).
+- **Dedupe**: `job_findings` (N:N) + `UNIQUE(engagement_id, fingerprint)`. O relatório de
+  cada job consulta a associação, então reexecutar um scan não zera o relatório seguinte.
+- **Nuclei**: `safe` mantém `high,critical`; a intrusividade é controlada por tags/rate-limit.
+- **Allowlist type-aware**: IP só casa com IP/rede; hostname só com hostname/subdomínio;
+  rede usa `subnet_of`. URLs com porta/path/query/fragment são rejeitadas no escopo.
+- **Cancelamento**: o DB é a fonte de verdade (`job.status=cancelled`); Redis é best-effort.
+- **Worker**: lista de processamento por `ETHOSCAN_WORKER_ID`, ack após cada job, heartbeat em
+  `/health` (`worker_ok`) e requeue de órfãos no restart. `stop_grace_period` de 10m no compose.
+- **`init_db` fail-fast**: migração Alembic falhada impede API/worker de subir.
+- **Webhooks**: `external_ref` é idempotente (unique em `engagements`); callback é revalidado
+  contra SSRF no envio e assinado com HMAC se `ETHOSCAN_CALLBACK_SECRET` existir.
+- **Auth**: rate limit de login por IP, bcrypt dummy para username inválido, auditoria de
+  sucesso/falha e `ETHOSCAN_SESSION_EPOCH` para invalidar sessões.
+- **Segredos**: Hydra redige password; BloodHound exige `ETHOSCAN_ALLOW_CREDS_IN_ARGV=true`
+  (default false); subprocessos usam ambiente mínimo.
+- **Docker/desktop**: API non-root, worker root com caps mínimas, `artifacts-init`; token do
+  desktop cifrado com `safeStorage` (fallback 0600); updater pode ser desativado com
+  `ETHOSCAN_DISABLE_UPDATER=1`.
+- **UI**: web e desktop têm tema `system/light/dark` (persistido, sem flash); desktop usa CSP
+  estrito sem estilos inline; banner de mock e confirmação antes de scan/cancelamento.
+- **Debian**: pacote `ethoscan_<versão>_amd64.deb` (nome Debian `ethoscan`, dependências GTK/NSS/
+  ALSA/etc., ícone e desktop entry). Instalação recomendada: `sudo apt install ./ethoscan_*.deb`
+  ou `scripts/install-deb.sh`. Release gera `SHA256SUMS.txt` e testa instalação em Debian 12.
+- **APT repo opcional**: `.github/workflows/apt-repo.yml` publica `gh-pages` assinado com GPG
+  (`APT_GPG_PRIVATE_KEY`/`APT_GPG_PASSPHRASE`); instruções em `docs/desktop-linux.md`.
 - **Allowlist precisa existir no `api` E no `worker`** — quem roda o gate F0 é o worker. Depois de editar
   o `.env`: `docker compose up -d api worker`.
 - **Master key ≠ token de sessão** para automação: use master key ou `ETHOSCAN_SERVICE_KEYS` (o token de
@@ -55,7 +88,9 @@
 - **`WEB_BIND` fica em loopback**: a UI web embute `NEXT_PUBLIC_API_KEY` no bundle JS.
 - `_is_covered` (authz) **descarta entradas inválidas** de escopo/allowlist para que um TLD não amplie
   autorização por casamento de sufixo.
-- Worker é **single job por vez**; para escala: `docker compose up -d --scale worker=3`.
+- Worker é **single job por vez** e usa lista de processamento + ack/heartbeat. Para escala,
+  cada réplica precisa de um `ETHOSCAN_WORKER_ID` único; o compose usa `worker-1` por default,
+  então `--scale worker=3` exige override por réplica.
 - A API **não tem rate limit** próprio — usar o proxy (Caddy/Cloudflare).
 
 ## Como subir e validar
@@ -64,7 +99,7 @@
 cd /home/mksbr/projetos/ethoscan
 docker compose up -d --build api worker   # código mudou
 curl -s localhost:8000/health             # {"status":"ok",...}
-cd backend && .venv/bin/pytest -q          # 67 passed
+cd backend && .venv/bin/pytest -q          # 126 passed
 # integração (manifest descreve tudo):
 curl -s -H "X-API-Key: $KEY" localhost:8000/api/integrations/n8n/manifest | head -40
 ```

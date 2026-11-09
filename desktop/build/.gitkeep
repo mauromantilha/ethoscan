@@ -1,0 +1,2 @@
+# Recursos de build do electron-builder (ícones, etc.).
+# O ícone definitivo entra na fase de empacotamento Debian/APT.

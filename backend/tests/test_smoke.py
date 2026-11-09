@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from app.core.orchestrator import run_pipeline
 from app import db as dbmod
+from app.core.orchestrator import run_pipeline
 from app.models import Job, JobStatus
 
 
@@ -131,8 +131,9 @@ def test_cancel_pending(client):
 
 
 def test_auth_required_when_key_set(tmp_path, monkeypatch):
-    from app.config import get_settings
     from fastapi.testclient import TestClient
+
+    from app.config import get_settings
 
     monkeypatch.setenv("ETHOSCAN_DISABLE_AUTH", "false")
     monkeypatch.setenv("ETHOSCAN_API_KEY", "secret-test-key")
@@ -141,13 +142,15 @@ def test_auth_required_when_key_set(tmp_path, monkeypatch):
     (tmp_path / "art").mkdir()
     get_settings.cache_clear()
 
-    from app import db as dbmod
+    from importlib import reload
+
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
-    from app.db import Base
-    from app import models  # noqa: F401
-    from importlib import reload
+
     import app.main as mainmod
+    from app import db as dbmod
+    from app import models  # noqa: F401
+    from app.db import Base
 
     dbmod.engine = create_engine(
         f"sqlite:///{tmp_path / 'auth.db'}", connect_args={"check_same_thread": False}

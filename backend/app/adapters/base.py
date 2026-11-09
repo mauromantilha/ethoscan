@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.config import get_settings
+from app.core.subprocess_env import subprocess_env
 from app.models import Severity
 
 
@@ -108,12 +109,13 @@ class BaseAdapter(ABC):
 
     def _exec(self, command: list[str], timeout: int = 120) -> tuple[str, str, int]:
         """Executa e devolve (stdout, stderr, exit_code) — sem levantar em exit != 0."""
-        proc = subprocess.run(
+        proc = subprocess.run(  # noqa: S603 - lista de argumentos, sem shell=True
             command,
             capture_output=True,
             text=True,
             timeout=timeout,
             check=False,
+            env=subprocess_env(),
         )
         self._last_exit_code = proc.returncode
         return proc.stdout or "", proc.stderr or "", proc.returncode

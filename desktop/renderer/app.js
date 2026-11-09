@@ -50,6 +50,7 @@ const el = {
   btnCheckUpdateLab: document.getElementById("btnCheckUpdateLab"),
   btnInstallUpdate: document.getElementById("btnInstallUpdate"),
   appVersion: document.getElementById("appVersion"),
+  mockBanner: document.getElementById("mockBanner"),
   toastHost: document.getElementById("toastHost"),
   progressDialog: document.getElementById("progressDialog"),
   progressJobMeta: document.getElementById("progressJobMeta"),
@@ -388,7 +389,7 @@ function renderEngagements(engagements) {
         <strong>#${e.id} ${escapeHtml(e.name)}</strong>
         <div class="meta">${escapeHtml((e.scope_targets || []).join(", "))} · ${escapeHtml(e.intensity)}</div>
         <div class="meta">${formatDate(e.created_at)}</div>
-        <div class="row" style="margin-top: 0.65rem">
+        <div class="row mt-sm">
           <button class="btn" data-action="start" data-id="${e.id}">Rodar pipeline</button>
           <button class="btn secondary" data-action="select" data-id="${e.id}">Ver achados</button>
         </div>
@@ -443,7 +444,7 @@ function renderJobs(jobs) {
           ${j.current_tool ? ` · ${escapeHtml(j.current_tool)}` : ""}
           ${j.error ? ` · erro: ${escapeHtml(j.error)}` : ""}
         </div>
-        <div class="row" style="margin-top: 0.65rem">${actions.join("")}</div>
+        <div class="row mt-sm">${actions.join("")}</div>
       </div>`;
     })
     .join("");
@@ -485,7 +486,7 @@ function renderHistory(items) {
           ${h.findings_count} achado(s) · ${formatDate(h.finished_at || h.created_at)}
         </div>
         <div class="meta">Tools: ${escapeHtml(tools)}</div>
-        <div class="row" style="margin-top: 0.65rem">${actions.join("")}</div>
+        <div class="row mt-sm">${actions.join("")}</div>
       </div>`;
     })
     .join("");
@@ -627,6 +628,7 @@ async function refresh() {
   try {
     const health = await window.ethoscan.health();
     renderHealth(health);
+    if (el.mockBanner) el.mockBanner.hidden = !health.mock_allowed;
 
     let inventory = null;
     let catalog = null;
@@ -658,7 +660,9 @@ async function refresh() {
     renderHistory(history || []);
 
     el.connectionStatus.textContent = health.redis_ok
-      ? `API ok · Redis ok · auth ${health.auth_enabled ? "on" : "off"}`
+      ? `API ok · Redis ok · worker ${health.worker_ok ? "ok" : "DOWN"} · auth ${
+          health.auth_enabled ? "on" : "off"
+        }`
       : `API ok · Redis DOWN — ${health.worker_hint || "suba Redis + worker"}`;
     if (!checkedUpdateAfterConnect) {
       checkedUpdateAfterConnect = true;
@@ -695,7 +699,7 @@ async function probeLoginGate() {
     return;
   }
 
-  const hasSession = Boolean(config.apiKey);
+  const hasSession = Boolean(config.hasApiKey);
   if (hasSession) {
     try {
       await window.ethoscan.listEngagements();
@@ -875,12 +879,14 @@ el.createForm.addEventListener("submit", async (ev) => {
       .split(/[\n,]/)
       .map((t) => t.trim())
       .filter(Boolean);
+    const selected_tools = getSelectedToolsFromForm();
     const eng = await window.ethoscan.createEngagement({
       name: el.name.value.trim(),
       scope_targets,
       intensity: el.intensity.value || "safe",
       roe_acknowledged: true,
-      selected_tools: getSelectedToolsFromForm(),
+      // Omitir = pipeline clássico; [] explícito é rejeitado pela API.
+      selected_tools: selected_tools.length ? selected_tools : undefined,
     });
     selectedEngagement = eng.id;
     el.formStatus.textContent = `Engagement #${eng.id} criado`;
@@ -976,6 +982,27 @@ document.body.addEventListener("click", async (ev) => {
 
   if (action === "watch") {
     openProgressModal(id);
+    return;
+  }
+
+  if (action === "start") {
+    const selected = getSelectedToolsFromForm();
+    const toolsLabel = selected.length ? selected.join(", ") : "pipeline clássico";
+    if (
+      !window.confirm(
+        `Iniciar scan no engagement #${id}?\n\nTools: ${toolsLabel}\n\n` +
+          "Confirme que existe autorização/RoE para os alvos do escopo.",
+      )
+    ) {
+      return;
+    }
+  }
+  if (
+    action === "cancel" &&
+    !window.confirm(
+      `Cancelar o job #${id}? A tool atual pode terminar antes do próximo checkpoint.`,
+    )
+  ) {
     return;
   }
 

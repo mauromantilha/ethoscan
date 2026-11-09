@@ -2,6 +2,9 @@
 
 Orquestrador local de **pentest ético** (CLI + API + dashboard + desktop + worker).
 
+> Versão **0.3.0** — mudanças/migração em [CHANGELOG.md](CHANGELOG.md); publicação em
+> [docs/release-checklist.md](docs/release-checklist.md).
+
 - Pipeline **F0–F6** (gate RoE/escopo/tools → recon → enum → web → vuln → correlação → relatório)
 - Escopo allowlist + RoE obrigatório + audit log
 - Catálogo de tools pré-configuradas (selecionáveis); adapters: Nmap, WhatWeb, Gobuster, sslscan, Nuclei, Nikto, Masscan, ZAP; Metasploit **só aux/scanner**; Burp **só lançamento GUI**
@@ -39,7 +42,8 @@ ETHOSCAN_ALLOW_MOCK=false
 - Tool no PATH → scan **real** (`mocked=false`)
 - Tool em falta + mock off → **falha** no gate F0 (apenas para as tools **selecionadas**)
 - Tool em falta + `ETHOSCAN_ALLOW_MOCK=true` → **mock** (`mocked=true` em findings/jobs)
-- `selected_tools` vazio → pipeline clássico F1–F4 (compatível com versões anteriores)
+- `selected_tools` omitido/`null` → pipeline clássico F1–F4; lista vazia explícita,
+  tool GUI/inventário ou tool incompatível com a intensidade → **400** (sem fallback silencioso)
 
 ### Ética / limites
 
@@ -72,8 +76,12 @@ UI / CLI / Desktop  →  API (FastAPI)  →  Redis queue  →  Worker (python -m
 ```
 
 - A API **enfileira** jobs; o **worker** executa o pipeline fora do processo HTTP
-- Cancelamento: `POST /api/jobs/{id}/cancel` (CLI/UI) — pending cancela já; running observa o flag entre fases/tools
-- Limite single-node: 1 worker ≈ 1 job de cada vez; a API permanece responsiva
+- Cancelamento: `POST /api/jobs/{id}/cancel` (CLI/UI) — o status no **DB** é a fonte de verdade;
+  running observa o status/flag entre fases/tools (Redis é best-effort)
+- Worker usa lista de processamento + **ack**: job não fica perdido se o worker cair; no restart,
+  jobs órfãos do mesmo `ETHOSCAN_WORKER_ID` voltam à fila. `/health` expõe `worker_ok` (heartbeat)
+- Limite single-node: 1 worker ≈ 1 job de cada vez; a API permanece responsiva.
+  Para múltiplos workers, cada réplica precisa de um `ETHOSCAN_WORKER_ID` único.
 
 ## F0 — gate explícito
 
@@ -136,13 +144,24 @@ npm run dist:linux   # → desktop/release/*.AppImage, *.deb
 npm run dist:win     # → desktop/release/*.exe (preferir Windows / CI)
 ```
 
-**GitHub Release:** push de uma tag `v*` (ex. `v0.1.2`) dispara [`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml), que constrói Linux + Windows e anexa os artefactos ao release. A app empacotada (NSIS / AppImage) verifica atualizações nos Releases via electron-updater — ver [desktop/README.md](desktop/README.md).
+**GitHub Release:** push de uma tag `v*` (ex. `v0.3.0`) dispara [`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml), que constrói Linux + Windows, valida o `.deb` em Debian 12, gera `SHA256SUMS.txt` e anexa os artefactos ao release. A app empacotada (NSIS / AppImage) verifica atualizações nos Releases via electron-updater — ver [desktop/README.md](desktop/README.md).
+
+**Debian/Ubuntu:** instale com `sudo apt install ./ethoscan_<versão>_amd64.deb` (não use `dpkg -i`) ou `./scripts/install-deb.sh`. Guia completo, atualização e repositório APT opcional em [docs/desktop-linux.md](docs/desktop-linux.md).
 ### Com Docker
 
 ```bash
-cp .env.example .env      # defina ETHOSCAN_API_KEY e/ou ETHOSCAN_LOCAL_* (login local)
+cp .env.example .env      # defina ETHOSCAN_API_KEY forte e/ou ETHOSCAN_LOCAL_* (login local)
 docker compose up -d --build
 # sobe postgres + redis (dedicado) + api + worker + web
+```
+
+O compose base é **lab local** (`ETHOSCAN_MODE=local`) e o mock é **opt-in**
+(`ETHOSCAN_ALLOW_MOCK=false` por default). Para expor fora do host, use o override
+remoto, que define `ETHOSCAN_MODE=remote`, exige `ETHOSCAN_API_KEY` e desliga mock:
+
+```bash
+cp deploy/Caddyfile.example deploy/Caddyfile   # ajuste domínio/e-mail
+docker compose -f docker-compose.yml -f docker-compose.remote.yml up -d --build
 ```
 
 Exposição de cada serviço (configurável no `.env`):
@@ -162,6 +181,9 @@ Exposição de cada serviço (configurável no `.env`):
   (os `NEXT_PUBLIC_*` são embutidos no bundle **no build**; se o navegador acessar por IP, ajuste
   `NEXT_PUBLIC_API_URL` para esse IP e inclua a origem em `ETHOSCAN_CORS_ORIGINS`).
 - **Dados:** Postgres no volume `ethoscan_pg`; relatórios HTML/PDF em `./artifacts/` no host.
+- **Hardening Docker:** `api` corre non-root (UID 1000); `worker` corre root com apenas
+  `NET_RAW`/`NET_ADMIN`/`DAC_OVERRIDE`; `artifacts-init` ajusta o dono de `./artifacts` e
+  `no-new-privileges` está ativo.
 - **Mudou código?** `docker compose up -d --build api worker` (sem `--reload`: reload mataria jobs em execução).
 - **Logs:** `docker compose logs -f api worker` (`ETHOSCAN_LOG_FORMAT=json` no `.env` para logs estruturados).
 - **Parar:** `docker compose down` (use `down -v` para apagar também os volumes/dados).
@@ -170,7 +192,7 @@ Exposição de cada serviço (configurável no `.env`):
 
 ```bash
 cd backend && source .venv/bin/activate
-export ETHOSCAN_API_KEY=change-me-local   # se auth ativa
+export ETHOSCAN_API_KEY="<a-mesma-key-forte-da-API>"   # se auth ativa
 
 python cli.py health
 python cli.py create -n "Lab" -t scanme.nmap.org --ack
@@ -185,15 +207,29 @@ python cli.py cancel 1
 - Path em disco: `job.report_path` (HTML) e `job.report_pdf_path` (PDF)
 - Download HTML: `GET /api/jobs/{id}/report`
 - Download PDF: `GET /api/jobs/{id}/report.pdf` (`application/pdf`, imprimível)
-- Catálogo: `GET /api/tools` — `selected_tools` no create/start (vazio = pipeline clássico)
+- Relatórios mostram o status final (`completed`), a coluna **Modo** (`real`/`MOCK`) e um
+  aviso quando há achados mock. Reexecuções mantêm os findings visíveis em cada job
+  (associação `job_findings`), sem duplicar no engagement.
+- Catálogo: `GET /api/tools` — `selected_tools` no create/start (omitir/`null` = pipeline
+  clássico; lista vazia, GUI/inventário ou incompatível com a intensidade = 400)
+
+## Tema da UI
+
+A dashboard web e o desktop suportam **light/dark/system**. O web e o desktop aplicam o
+tema antes do primeiro paint e persistem a escolha em `localStorage`; o default é seguir
+`prefers-color-scheme`. Relatórios HTML/PDF permanecem claros para impressão.
 
 ## Auditoria e logs
 
 - `GET /api/audit` — trilha de auditoria paginada, com filtros `engagement_id`, `job_id` e
   `action`; total no header `X-Total-Count`.
 - `GET /api/findings` — aceita `limit` (1–500), `offset` e `severity`; total em `X-Total-Count`.
+  O filtro `job_id` usa a associação `job_findings` (o campo `job_id` do finding é o
+  primeiro job que o encontrou; o mesmo finding pode aparecer em reexecuções).
 - `tool_ran` registra `ok`, `exit_code` e `error` de cada execução; falha/timeout de tool vira
   achado `tool_error` no relatório **sem derrubar o job** (as demais fases continuam).
+- A auditoria registra `actor` (master-key/service-key/session/user) e `client_ip` nas ações da
+  API; `job_queued` só é gravado depois de o job entrar na fila.
 - Logs estruturados: `ETHOSCAN_LOG_LEVEL` (default `INFO`) e `ETHOSCAN_LOG_FORMAT=json` gera uma
   linha JSON por evento (`job_id`, `tool`, `exit_code`, `phase`...).
 
@@ -210,13 +246,19 @@ SQLite local continua a funcionar. Alembic cobre evolução de schema (`backend/
 cd backend && alembic upgrade head
 ```
 
-`init_db()` faz `create_all` + `upgrade head` (best-effort) e garante colunas novas em SQLite.
+`init_db()` faz `create_all` + `upgrade head` e **falha explicitamente** se a migração
+Alembic falhar: API/worker não sobem com schema desatualizado. Faça backup da DB antes de
+aplicar migrações em produção.
 
 ## Testes smoke (sem Kali)
 
 ```bash
+cd backend
+pip install -r requirements-dev.txt   # pytest, pytest-cov, ruff, pip-audit
+cd ..
 ./scripts/smoke.sh
 # ou: cd backend && ETHOSCAN_DISABLE_AUTH=true pytest -q
+# lint: cd backend && ruff check .
 ```
 
 Cobertura: RoE negado, alvo inválido, create→run (mock)→findings→report HTML/PDF, selected_tools,
@@ -230,17 +272,28 @@ Ver [docs/kali-acceptance.md](docs/kali-acceptance.md).
 
 **Default seguro**
 
-- Defina `ETHOSCAN_API_KEY` (header `X-API-Key` na API; CLI via env; UI via `NEXT_PUBLIC_API_KEY`)
+- Defina `ETHOSCAN_API_KEY` forte (`openssl rand -hex 32`; header `X-API-Key` na API;
+  CLI via env; UI via `NEXT_PUBLIC_API_KEY`). Chaves default/fracas (`change-me-local`, etc.)
+  são **rejeitadas** fora de `mode=local`.
+- `ETHOSCAN_SERVICE_KEYS` (CSV) também **ativa auth**; use uma chave dedicada por integração
+  (n8n) e revogue sem trocar a master key.
 - Opcional (desktop/lab): `ETHOSCAN_LOCAL_USERNAME` + `ETHOSCAN_LOCAL_PASSWORD_HASH` (bcrypt).
   Login: `POST /api/auth/login` → token de sessão para usar como `X-API-Key` (não devolve a master key).
   Gerar hash: `python3 -c "import bcrypt; print(bcrypt.hashpw(b'YOUR_PASSWORD', bcrypt.gensalt()).decode())"`
 - CORS apenas para `ETHOSCAN_CORS_ORIGINS` (default `http://localhost:3000`) — **não** usa `*`
 - Bind diário: `127.0.0.1`
+- Mock default **desligado** (`ETHOSCAN_ALLOW_MOCK=false`); ative apenas em dev/lab.
 - `ETHOSCAN_ALLOWLIST` (CSV de hosts/IPs/CIDRs): restringe **globalmente** o que pode ser escaneado
   (revalidado na criação e na execução); vazio = sem restrição extra. O escopo recusa TLD/single-label
   (`com`, `io`) e sufixos públicos (`co.uk`, `com.br`).
 - Sessões do login local ficam no **Redis** (sobrevivem a restart da API); sem Redis há fallback em
-  memória do processo.
+  memória do processo. `ETHOSCAN_SESSION_EPOCH` invalida todas as sessões ao ser incrementado.
+- Login local tem rate limit por IP (`ETHOSCAN_LOGIN_MAX_ATTEMPTS`/`..._WINDOW_SECONDS`) e
+  auditoria de sucesso/falha; username inválido também executa bcrypt (timing).
+- Webhooks de conclusão são revalidados contra SSRF (DNS + IP público) e assinados com HMAC
+  quando `ETHOSCAN_CALLBACK_SECRET` está definido (`X-Ethoscan-Signature` + timestamp).
+- Subprocessos recebem ambiente mínimo (sem `ETHOSCAN_API_KEY`/DB URL); credenciais em argv do
+  BloodHound ficam desativadas por default (`ETHOSCAN_ALLOW_CREDS_IN_ARGV=false`).
 
 **Lab local sem auth**
 
@@ -248,7 +301,10 @@ Ver [docs/kali-acceptance.md](docs/kali-acceptance.md).
 ETHOSCAN_DISABLE_AUTH=true
 ```
 
-Só é aceitável em lab isolado. Sem key/utilizador local e sem `DISABLE_AUTH` em `mode=local`, a API arranca mas regista aviso. Fora de `local`, falta de auth é erro de configuração.
+Só é aceitável em lab isolado. Sem key, service keys ou utilizador local e sem
+`DISABLE_AUTH` em `mode=local`, a API arranca mas regista aviso. Fora de `local`
+(`remote`/`production`), falta de auth **impede o arranque** e `ETHOSCAN_DISABLE_AUTH=true`
+é rejeitado.
 
 **Smoke desktop (login local)**
 

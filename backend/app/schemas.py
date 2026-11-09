@@ -13,7 +13,8 @@ class EngagementCreate(BaseModel):
     roe_acknowledged: bool = False
     roe_text: str | None = None
     notes: str | None = None
-    selected_tools: list[str] = Field(default_factory=list)
+    # None/omitido = pipeline clássico; [] explícito é rejeitado na validação.
+    selected_tools: list[str] | None = None
 
     @field_validator("scope_targets")
     @classmethod
@@ -25,8 +26,10 @@ class EngagementCreate(BaseModel):
 
     @field_validator("selected_tools")
     @classmethod
-    def clean_tools(cls, value: list[str]) -> list[str]:
-        return [t.strip().lower() for t in (value or []) if t and t.strip()]
+    def clean_tools(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        return [t.strip().lower() for t in value if t and t.strip()]
 
 
 class EngagementOut(BaseModel):
@@ -37,6 +40,7 @@ class EngagementOut(BaseModel):
     roe_acknowledged: bool
     roe_text: str | None
     notes: str | None
+    external_ref: str | None = None
     selected_tools: list[str] = Field(default_factory=list)
     created_at: datetime
 
@@ -142,6 +146,7 @@ class AuditEventOut(BaseModel):
     id: int
     engagement_id: int | None = None
     actor: str
+    client_ip: str | None = None
     action: str
     detail: dict[str, Any]
     created_at: datetime
@@ -232,6 +237,7 @@ class HealthOut(BaseModel):
     auth_enabled: bool
     local_login_available: bool = False
     redis_ok: bool
+    worker_ok: bool = False
     worker_hint: str
     tools: dict[str, Any]
     phases: dict[str, str]
@@ -244,7 +250,7 @@ class LoginRequest(BaseModel):
 
 class LoginResponse(BaseModel):
     token: str
-    token_type: str = "api_key"
+    token_type: str = "api_key"  # noqa: S105 - nome do esquema, não um segredo
     username: str
     expires_at: datetime
     message: str = "Sessão criada. Use o token no header X-API-Key."

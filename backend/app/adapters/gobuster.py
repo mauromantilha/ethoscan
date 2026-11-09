@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.adapters.base import AdapterResult, BaseAdapter, RawFinding
+from app.core.targets import target_url
 from app.models import Severity
 
 
@@ -11,7 +12,7 @@ class GobusterAdapter(BaseAdapter):
     binary = "gobuster"
 
     def _run_real(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
-        url = target if target.startswith("http") else f"http://{target}"
+        url = target_url(target)
         # Preferir wordlist curta em safe se existir; senão common.txt.
         short_list = Path("/usr/share/wordlists/dirb/small.txt")
         common = Path("/usr/share/wordlists/dirb/common.txt")

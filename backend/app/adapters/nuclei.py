@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 
 from app.adapters.base import AdapterResult, BaseAdapter, RawFinding
+from app.core.targets import target_url
 from app.models import Severity
-
 
 _SEVERITY_MAP = {
     "info": Severity.info,
@@ -23,8 +23,10 @@ class NucleiAdapter(BaseAdapter):
 
     def _run_real(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
         out_file = job_dir / "nuclei.jsonl"
-        url = target if target.startswith("http") else f"https://{target}"
-        severity = "info,low,medium" if intensity == "safe" else "info,low,medium,high,critical"
+        url = target_url(target, "https")
+        # Segurança não se faz escondendo high/critical: o modo safe controla
+        # intrusividade por tags/rate-limit, não por severidade.
+        severity = "info,low,medium,high,critical"
         cmd = [
             "nuclei",
             "-u",

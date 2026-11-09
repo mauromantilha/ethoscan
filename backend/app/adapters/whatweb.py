@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.adapters.base import AdapterResult, BaseAdapter, RawFinding
+from app.core.targets import target_url
 from app.models import Severity
 
 
@@ -11,7 +12,7 @@ class WhatWebAdapter(BaseAdapter):
     binary = "whatweb"
 
     def _run_real(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
-        url = target if target.startswith("http") else f"http://{target}"
+        url = target_url(target)
         out_file = job_dir / "whatweb.txt"
         aggression = "1" if intensity == "safe" else ("3" if intensity == "standard" else "4")
         timeout = 45 if intensity == "safe" else (90 if intensity == "standard" else 120)

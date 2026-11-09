@@ -6,7 +6,6 @@ from urllib.parse import urlparse
 
 from fastapi import HTTPException
 
-
 _HOSTNAME_RE = re.compile(
     r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*\.?$"
 )
@@ -45,6 +44,28 @@ def normalize_target(raw: str) -> str:
     return value.lower().rstrip(".")
 
 
+def _url_host(value: str) -> str | None:
+    """Host de URL http(s) sem porta/path/query/fragment.
+
+    O escopo é deliberadamente estrito: ``https://host:8443/admin`` não pode ser
+    normalizado para ``host`` (isso ampliaria o escopo e perderia a porta/path).
+    """
+    parsed = urlparse(value)
+    if parsed.scheme.lower() not in {"http", "https"}:
+        return None
+    try:
+        if parsed.port is not None:
+            return None
+    except ValueError:
+        return None
+    if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+        return None
+    host = parsed.hostname
+    if not host:
+        return None
+    return host
+
+
 def is_valid_target(raw: str) -> bool:
     value = raw.strip()
     if not value:
@@ -60,7 +81,7 @@ def is_valid_target(raw: str) -> bool:
     except ValueError:
         pass
     if "://" in value:
-        host = urlparse(value).hostname
+        host = _url_host(value)
         if not host:
             return False
         return _has_targetable_hostname(host) or _is_ip(host)
@@ -131,35 +152,66 @@ def assert_targets_allowed(targets: list[str], allowlist: list[str]) -> None:
         assert_in_allowlist(target, allowlist)
 
 
-def _is_covered(target: str, scope: list[str]) -> bool:
-    """True se o alvo está coberto por entrada exata, CIDR ou subdomínio do escopo.
+def _target_kind(value: str) -> str:
+    """Classifica um alvo normalizado: ip, network ou hostname."""
+    try:
+        ipaddress.ip_address(value)
+        return "ip"
+    except ValueError:
+        pass
+    try:
+        ipaddress.ip_network(value, strict=False)
+        return "network"
+    except ValueError:
+        pass
+    return "hostname"
 
-    Entradas que não são alvo válido (ex.: um TLD como "com") são descartadas para que
-    não ampliem o escopo por casamento de sufixo.
+
+def _is_covered(target: str, scope: list[str]) -> bool:
+    """True se o alvo está coberto pelo escopo, comparando tipos compatíveis.
+
+    - IP só casa com IP exato ou rede que o contém (nunca por sufixo de hostname).
+    - Rede só casa com rede igual/contida ou IP /32 exato.
+    - Hostname só casa com hostname exato ou subdomínio de hostname.
     """
     normalized = normalize_target(target)
-    scope_norm = [
-        normalize_target(item) for item in scope if item and is_valid_target(item)
-    ]
+    target_kind = _target_kind(normalized)
+    scope_entries: list[tuple[str, str]] = []
+    for item in scope:
+        if not item or not is_valid_target(item):
+            continue
+        normalized_item = normalize_target(item)
+        scope_entries.append((normalized_item, _target_kind(normalized_item)))
 
-    if normalized in scope_norm:
-        return True
-
-    # CIDR containment for IPs
-    try:
+    if target_kind == "ip":
         ip = ipaddress.ip_address(normalized)
-    except ValueError:
-        ip = None
-    if ip is not None:
-        for item in scope_norm:
-            try:
-                if ip in ipaddress.ip_network(item, strict=False):
-                    return True
-            except ValueError:
-                continue
+        for item, kind in scope_entries:
+            if kind == "ip" and ip == ipaddress.ip_address(item):
+                return True
+            if kind == "network" and ip in ipaddress.ip_network(item, strict=False):
+                return True
+        return False
 
-    # subdomain of scoped domain
-    return any(item and normalized.endswith("." + item) for item in scope_norm)
+    if target_kind == "network":
+        network = ipaddress.ip_network(normalized, strict=False)
+        for item, kind in scope_entries:
+            if kind == "network":
+                scoped = ipaddress.ip_network(item, strict=False)
+                if network == scoped or network.subnet_of(scoped):
+                    return True
+            elif (
+                kind == "ip"
+                and network.num_addresses == 1
+                and network.network_address == ipaddress.ip_address(item)
+            ):
+                return True
+        return False
+
+    return any(
+        kind == "hostname"
+        and (normalized == item or normalized.endswith("." + item))
+        for item, kind in scope_entries
+    )
 
 
 def validate_scope(scope: list[str]) -> list[str]:
