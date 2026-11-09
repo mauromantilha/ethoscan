@@ -52,7 +52,8 @@ Revisão de segurança, confiabilidade, UI e empacotamento Debian.
 - Instalação recomendada: `sudo apt install ./ethoscan_0.3.0_amd64.deb` ou
   `scripts/install-deb.sh`.
 - Release gera `SHA256SUMS.txt` e testa instalação em Debian 12.
-- Workflow opcional de repositório APT assinado (GitHub Pages + GPG).
+- Repositório APT assinado publicado em <https://mauromantilha.github.io/ethoscan>
+  (GitHub Pages + GPG); instalação/upgrade via `apt`.
 - CI com ruff, pytest/cobertura, build do frontend, packaging Debian e shellcheck.
 
 ### Breaking changes / migração

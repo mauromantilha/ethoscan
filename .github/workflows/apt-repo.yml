@@ -1,12 +1,13 @@
 name: apt-repo
 
 on:
-  release:
-    types: [published]
+  workflow_run:
+    workflows: ["desktop-release"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag do release (ex.: v0.1.4)"
+        description: "Tag do release (ex.: v0.3.0)"
         required: true
         type: string
 
@@ -20,21 +21,37 @@ concurrency:
 jobs:
   publish:
     name: Publicar repositório APT (gh-pages)
-    if: github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     env:
-      TAG: ${{ github.event.release.tag_name || inputs.tag }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Resolve release tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [ -n "${INPUT_TAG:-}" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)"
+          fi
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          if [ "$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease)" = "true" ]; then
+            echo "SKIP_APT=1" >> "$GITHUB_ENV"
+            echo "Release $TAG é prerelease; APT stable não será publicado."
+          fi
+
       - name: Install packaging tools
+        if: env.SKIP_APT != '1'
         run: |
           sudo apt-get update
           sudo apt-get install -y dpkg-dev apt-utils gnupg
 
       - name: Import APT signing key
+        if: env.SKIP_APT != '1'
         env:
           APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
         run: |
@@ -46,6 +63,7 @@ jobs:
           gpg --list-secret-keys --keyid-format LONG
 
       - name: Download .deb from release
+        if: env.SKIP_APT != '1'
         run: |
           mkdir -p apt-repo/pool/main/e/ethoscan
           gh release download "$TAG" \
@@ -54,6 +72,7 @@ jobs:
             --dir apt-repo/pool/main/e/ethoscan
 
       - name: Build APT metadata
+        if: env.SKIP_APT != '1'
         env:
           APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
         run: |
@@ -78,9 +97,10 @@ jobs:
           gpg --batch --yes --pinentry-mode loopback \
             --passphrase "${APT_GPG_PASSPHRASE:-}" \
             --armor --detach-sign -o dists/stable/Release.gpg dists/stable/Release
-          gpg --armor --export > ethoscan-archive-keyring.gpg
+          gpg --export > ethoscan-archive-keyring.gpg
 
       - name: Deploy to GitHub Pages
+        if: env.SKIP_APT != '1'
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}

@@ -39,17 +39,21 @@ AppImage/Windows NSIS mantêm o updater.
 
 ## Repositório APT (opcional)
 
-Se o repositório APT assinado estiver publicado (GitHub Pages), use:
+O repositório APT assinado está publicado em GitHub Pages:
 
 ```bash
-sudo install -m 0644 ethoscan-archive-keyring.gpg \
+curl -fsSL https://mauromantilha.github.io/ethoscan/ethoscan-archive-keyring.gpg \
+  -o /tmp/ethoscan-archive-keyring.gpg
+sudo install -m 0644 /tmp/ethoscan-archive-keyring.gpg \
   /usr/share/keyrings/ethoscan-archive-keyring.gpg
 echo "deb [signed-by=/usr/share/keyrings/ethoscan-archive-keyring.gpg] \
-https://SEU_OWNER.github.io/ethoscan stable main" \
+https://mauromantilha.github.io/ethoscan stable main" \
   | sudo tee /etc/apt/sources.list.d/ethoscan.list
 sudo apt update
 sudo apt install ethoscan
 ```
+
+Fingerprint da chave: `F14D 7665 D743 07E3 33F6 CD65 35C1 D6BE 8BC7 72DD`.
 
 Depois:
 
@@ -57,9 +61,10 @@ Depois:
 sudo apt update && sudo apt install --only-upgrade ethoscan
 ```
 
-O workflow `.github/workflows/apt-repo.yml` publica o repositório na branch `gh-pages`.
-Configure os secrets `APT_GPG_PRIVATE_KEY` e `APT_GPG_PASSPHRASE` e ative GitHub Pages
-para a branch `gh-pages`.
+O workflow `.github/workflows/apt-repo.yml` publica o repositório na branch `gh-pages`
+depois de o workflow `desktop-release` terminar (ou via `workflow_dispatch`). Configure os
+secrets `APT_GPG_PRIVATE_KEY` e `APT_GPG_PASSPHRASE` e ative GitHub Pages para a branch
+`gh-pages`.
 
 Gerar a chave (uma vez, fora do repo):
 

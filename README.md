@@ -146,7 +146,9 @@ npm run dist:win     # → desktop/release/*.exe (preferir Windows / CI)
 
 **GitHub Release:** push de uma tag `v*` (ex. `v0.3.0`) dispara [`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml), que constrói Linux + Windows, valida o `.deb` em Debian 12, gera `SHA256SUMS.txt` e anexa os artefactos ao release. A app empacotada (NSIS / AppImage) verifica atualizações nos Releases via electron-updater — ver [desktop/README.md](desktop/README.md).
 
-**Debian/Ubuntu:** instale com `sudo apt install ./ethoscan_<versão>_amd64.deb` (não use `dpkg -i`) ou `./scripts/install-deb.sh`. Guia completo, atualização e repositório APT opcional em [docs/desktop-linux.md](docs/desktop-linux.md).
+**Debian/Ubuntu:** instale com `sudo apt install ./ethoscan_<versão>_amd64.deb` (não use `dpkg -i`) ou `./scripts/install-deb.sh`. Guia completo, atualização e repositório APT em [docs/desktop-linux.md](docs/desktop-linux.md).
+
+Repositório APT assinado (GitHub Pages): `https://mauromantilha.github.io/ethoscan` — instalação com `apt install ethoscan` e upgrades com `apt upgrade`.
 ### Com Docker
 
 ```bash

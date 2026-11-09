@@ -7,8 +7,10 @@
 
 - `main` = `34f5d12` — PRs **#12** (integração n8n + deploy), **#13** (allowlist + sessões) e
   **#14** (handoff) mergeados; as fases 0–7 desta revisão estão na working tree/PR pendente.
-- **Release 0.3.0 preparado** (API/desktop/frontend + changelog), mas **tag/release ainda não
-  publicados**; publicação exige confirmação e credenciais.
+- **Release 0.3.0 publicado** (tag `v0.3.0`, GitHub Release com AppImage/`.deb`/`.exe`/
+  `SHA256SUMS.txt`); teste Debian 12 passou.
+- **Repositório APT publicado** em <https://mauromantilha.github.io/ethoscan> (branch
+  `gh-pages`, chave GPG `F14D 7665 D743 07E3 33F6 CD65 35C1 D6BE 8BC7 72DD`).
 - Suíte: **126 passed** (`cd backend && .venv/bin/pytest -q`). CI: `.github/workflows/smoke.yml`
   roda ruff, pytest com cobertura mínima de 70%, build do frontend, package do desktop e shellcheck
   em cada PR/push.
@@ -79,8 +81,9 @@
 - **Debian**: pacote `ethoscan_<versão>_amd64.deb` (nome Debian `ethoscan`, dependências GTK/NSS/
   ALSA/etc., ícone e desktop entry). Instalação recomendada: `sudo apt install ./ethoscan_*.deb`
   ou `scripts/install-deb.sh`. Release gera `SHA256SUMS.txt` e testa instalação em Debian 12.
-- **APT repo opcional**: `.github/workflows/apt-repo.yml` publica `gh-pages` assinado com GPG
-  (`APT_GPG_PRIVATE_KEY`/`APT_GPG_PASSPHRASE`); instruções em `docs/desktop-linux.md`.
+- **APT repo**: `.github/workflows/apt-repo.yml` publica `gh-pages` assinado com GPG
+  (`APT_GPG_PRIVATE_KEY`/`APT_GPG_PASSPHRASE`), disparado após `desktop-release` ou manual;
+  instruções em `docs/desktop-linux.md`.
 - **Allowlist precisa existir no `api` E no `worker`** — quem roda o gate F0 é o worker. Depois de editar
   o `.env`: `docker compose up -d api worker`.
 - **Master key ≠ token de sessão** para automação: use master key ou `ETHOSCAN_SERVICE_KEYS` (o token de
