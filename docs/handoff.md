@@ -5,8 +5,7 @@
 
 ## Onde o projeto está (2026-11-09)
 
-- `main` = `34f5d12` — PRs **#12** (integração n8n + deploy), **#13** (allowlist + sessões) e
-  **#14** (handoff) mergeados; as fases 0–7 desta revisão estão na working tree/PR pendente.
+- `main` = `43d6ede` — fases 0–7 commitadas (`2a1819e` release, `43d6ede` docs/APT).
 - **Release 0.3.0 publicado** (tag `v0.3.0`, GitHub Release com AppImage/`.deb`/`.exe`/
   `SHA256SUMS.txt`); teste Debian 12 passou.
 - **Repositório APT publicado** em <https://mauromantilha.github.io/ethoscan> (branch
