@@ -1,0 +1,20 @@
+Package: ethoscan
+Version: 0.3.0
+Architecture: amd64
+Maintainer: Ethoscan <ethoscan@users.noreply.github.com>
+Installed-Size: 283106
+Depends: libgtk-3-0 | libgtk-3-0t64, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0 | libatspi2.0-0t64, libuuid1, libsecret-1-0, libgbm1, libasound2 | libasound2t64
+Recommends: libappindicator3-1
+Filename: pool/main/e/ethoscan/ethoscan_0.3.0_amd64.deb
+Size: 78195364
+MD5sum: 964f70686a073e88a0e367a5d8e137e1
+SHA1: 36b47cfe5afada5c020821a507054010689f2c7c
+SHA256: 06726f72f4a5c791022a06cc3dd2ace5ae4b18e9d627db1ac6442403107fa6cb
+Section: default
+Priority: optional
+Homepage: https://github.com/mauromantilha/ethoscan
+Description: Cliente Electron para a API Ethoscan (pentest ético local)
+  Shell desktop que chama a API Ethoscan local. Requer API + Redis + worker; não inclui scanners.
+License: MIT
+Vendor: Ethoscan <ethoscan@users.noreply.github.com>
+

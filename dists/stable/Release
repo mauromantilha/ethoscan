@@ -1,0 +1,23 @@
+Architectures: amd64
+Codename: stable
+Components: main
+Date: Mon, 09 Nov 2026 23:19:15 +0000
+Label: Ethoscan
+Origin: Ethoscan
+Suite: stable
+MD5Sum:
+ 6a4784a55621a1ef76e4bbd3a172c09d              140 Release
+ ebeb366d32732fa456a853b9994bc65e              906 main/binary-amd64/Packages
+ d50351ccc38bbfa5d3c016d1bb81ff80              581 main/binary-amd64/Packages.gz
+SHA1:
+ 3f088b4ac587b03768d4268fdb4440034ddc498c              140 Release
+ 84b378441fbdc854d3e2efa8f6105a8a1dabe685              906 main/binary-amd64/Packages
+ 25582242a26f4a2b8327c2c08eaef54de45d9e3d              581 main/binary-amd64/Packages.gz
+SHA256:
+ 59d660b9b796b97394bf195addae4beb211a2407e80691d603255fc504ae7cbf              140 Release
+ dd75191155e1edd810db5520b0da606866acc6cf15c9d20469ffe02531e4d8ff              906 main/binary-amd64/Packages
+ 180e0754292845e409aef969d2abf2e1ae99b1ae50ef4d644d7138a4c8217118              581 main/binary-amd64/Packages.gz
+SHA512:
+ 21ff9bcbfb78816d1c2ae1c9a9567233d5faf4207b0800e604f9a4df6bf78804f61234d1ab3cc696880a43176498a15c32b2ce4ae07f279acfe96b77d85abf4a              140 Release
+ 3a641bf16d4045d9d1589f116c3871c71871eb218bfa2686ff5177719e84c16d7ea77e082049719630ebbacd5f171be702faabd1d0b2431a9dd5a4d326b49593              906 main/binary-amd64/Packages
+ ae47de373e65f57e20621584a5db1ebe45a549b9f94315e5150fca0b5f1588be1de5871d01c029a26ec054091c05f88d4d5b1bcea9f83bee105a53ce078901ec              581 main/binary-amd64/Packages.gz
