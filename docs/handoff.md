@@ -3,31 +3,33 @@
 > Documento operacional para **retomar o trabalho** (agente ou humano) sem reler a conversa toda.
 > Atualize ao mudar o estado. **Nunca coloque segredos aqui**: valores vivem no `.env` (gitignored).
 
-## Onde o projeto está (2026-11-10)
+## Onde o projeto está (2026-11-10, pós-release)
 
-- **0.4.0 em preparação** — login local com 2FA TOTP (`ETHOSCAN_LOCAL_TOTP_SECRET`), campo
-  **Código 2FA** no desktop; inclui as correções de instalação da 0.3.1
-  (`chrome-sandbox` 4755, wrapper do AppImage, updater `.deb` via `apt`).
-- `main` = `48f66c6` (release 0.3.0) + working tree 0.4.0.
-- **Release 0.3.0 publicado** (tag `v0.3.0`, GitHub Release com AppImage/`.deb`/`.exe`/
-  `SHA256SUMS.txt`); teste Debian 12 passou.
-- **Repositório APT publicado** em <https://mauromantilha.github.io/ethoscan> (branch
-  `gh-pages`, chave GPG `F14D 7665 D743 07E3 33F6 CD65 35C1 D6BE 8BC7 72DD`).
-- Suíte: **141 passed** (`cd backend && .venv/bin/pytest -q`; também validado em Python 3.13).
-  CI: `.github/workflows/smoke.yml`
-  roda ruff, pytest com cobertura mínima de 70%, build do frontend, package do desktop e shellcheck
-  em cada PR/push.
-- Stack Docker definido no compose: `api` (`:8000`), `worker`, `redis` (rede interna, AOF,
-  sem porta no host), `postgres` (loopback `:15432`), `web` (loopback `:3000`). Subir com
-  `docker compose up -d --build`; no host deste setup não estava a correr.
-- `ETHOSCAN_DOCKERFILE=Dockerfile.tools` inclui nmap/whatweb/gobuster/sslscan/nuclei +
-  opcionais Debian no container; `Dockerfile.kali` inclui o catálogo completo (Metasploit,
-  ZAP, NetExec, BloodHound.py, unicornscan) e venv Python 3.13. O default `Dockerfile` é
-  slim (tools vêm do host Kali).
-- Ambiente **limpo**: 0 engagements/jobs; sessões de teste revogadas no Redis.
-- `.env`: auth ligada (`ETHOSCAN_DISABLE_AUTH=false`), utilizador local `mauromantilha` com
-  hash bcrypt + 2FA TOTP; `API_BIND`/`ETHOSCAN_ALLOWLIST`/`ETHOSCAN_SERVICE_KEYS` conforme o
-  host. Segredos **não** versionados (`.env` é gitignored, modo 0600).
+- **Releases 0.4.0 → 0.5.1 publicadas** (GitHub Releases + APT repo; assets `.deb`/AppImage/
+  `.exe`/`SHA256SUMS.txt`; CI smoke e desktop-release verdes). `main` = `b20bca4` (tag `v0.5.1`).
+- **v0.5.0**: 2FA TOTP (login local + campo Código 2FA no desktop, `pyotp`), imagem Kali
+  (`Dockerfile.kali`, catálogo completo + fix EPERM de file capabilities que quebrava o nmap),
+  lab de inventário (`docker-compose.lab.yml` + `scripts/lab-tools.sh`, `network_mode: host`),
+  correções de adapters/relatório (Cobertura/limitações, fim dos findings falsos), assistente
+  LLM **aikido** (`POST /api/jobs/{id}/analyze`, `/assistant`, `/api/llm/test`; aba Assistente
+  no desktop; Mistral/OpenAI/Groq/Ollama via `ETHOSCAN_LLM_*`; advisory-only), botão
+  **Testar API**, `scripts/check-install.sh` (doutor de instalação) e quickstart no README.
+- **v0.5.1**: descoberta **passiva** de IP de origem (`app/core/ipdiscovery.py`) — subdomínios
+  comuns, MX e Certificate Transparency; `POST /api/discover-ip`; F0 registra candidatos em
+  `_coverage.origin_ip` (relatório lista com fonte); filtro de SaaS de e-mail (Zoho etc.);
+  botão **Descobrir IP de origem** na aba Novo do desktop.
+- **Repositório APT** ativo em <https://mauromantilha.github.io/ethoscan> (branch `gh-pages`,
+  chave GPG `F14D 7665 D743 07E3 33F6 CD65 35C1 D6BE 8BC7 72DD`) — workflows `apt-repo`
+  atualizam a cada release.
+- Suíte: **165 passed**, cobertura 80.7% (mín. 70%). CI (`smoke.yml`): ruff, pytest+cobertura,
+  build frontend, package desktop, shellcheck. Tests herméticos (conftest limpa `ETHOSCAN_LLM_*`).
+- Stack Docker do host a correr com `Dockerfile.kali` (15/15 tools `available: true`,
+  `llm_enabled: true` com Mistral `mistral-small-latest`); login local `mauromantilha` + 2FA.
+- `.env`: auth ligada, hash bcrypt + TOTP, `ETHOSCAN_DOCKERFILE=Dockerfile.kali`,
+  `ETHOSCAN_LLM_*` (Mistral). Segredos **não** versionados (`.env` gitignored, modo 0600).
+- Lição do dia: jobs contra alvos **atrás da Cloudflare** medem a edge, não a origem
+  (cf. jobs #1–#3 contra advogasync/corretorsync); o caminho é allowlist do IP do scanner
+  ou origin/staging — nunca bypass de WAF.
 
 ## Entregue nos últimos PRs
 
