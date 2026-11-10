@@ -1,15 +1,15 @@
 Package: ethoscan
-Version: 0.5.0
+Version: 0.5.1
 Architecture: amd64
 Maintainer: Ethoscan <ethoscan@users.noreply.github.com>
-Installed-Size: 283120
+Installed-Size: 283122
 Depends: libgtk-3-0 | libgtk-3-0t64, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0 | libatspi2.0-0t64, libuuid1, libsecret-1-0, libgbm1, libasound2 | libasound2t64
 Recommends: libappindicator3-1
-Filename: pool/main/e/ethoscan/ethoscan_0.5.0_amd64.deb
-Size: 78280470
-MD5sum: 88e40c42dcec7de3ea6e9ba310c40b3b
-SHA1: de8e6176984807b4364edf68daaf3984d56607c4
-SHA256: acb95c32ed9bae80d77f7d1c55a84ea9f1210ba70109aa4d1bd34b844bae3198
+Filename: pool/main/e/ethoscan/ethoscan_0.5.1_amd64.deb
+Size: 78267520
+MD5sum: 0a3a760c091f0350b11af67aaff7a12b
+SHA1: f3c205a3be0cb22c6e543aad7b2e387737fdee16
+SHA256: d2b8d67f7491e580b4b4db9428cea9db943907041bd12aa77995e1dbab0dbf42
 Section: default
 Priority: optional
 Homepage: https://github.com/mauromantilha/ethoscan
