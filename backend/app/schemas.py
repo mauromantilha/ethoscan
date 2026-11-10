@@ -237,11 +237,51 @@ class HealthOut(BaseModel):
     auth_enabled: bool
     local_login_available: bool = False
     local_login_2fa: bool = False
+    llm_enabled: bool = False
     redis_ok: bool
     worker_ok: bool = False
     worker_hint: str
     tools: dict[str, Any]
     phases: dict[str, str]
+
+
+class FindingTriageOut(BaseModel):
+    finding_id: int
+    verdict: str = "inconclusive"
+    confidence: float = 0.0
+    reasoning: str = ""
+
+
+class JobAnalysisOut(BaseModel):
+    """Triagem LLM dos achados de um job — advisory-only, não executa nada."""
+
+    job_id: int
+    model: str
+    summary: str = ""
+    triage: list[FindingTriageOut] = []
+    correlations: list[str] = []
+    next_steps: list[str] = []
+    limitations: list[str] = []
+    advisory_note: str = (
+        "Análise gerada por LLM a partir dos findings do job. Valide antes de "
+        "reportar ao cliente; o modelo não executou nenhum teste adicional."
+    )
+
+
+class AssistantMessageIn(BaseModel):
+    role: str = Field(pattern="^(user|assistant)$")
+    content: str = Field(min_length=1, max_length=8000)
+
+
+class AssistantChatRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=4000)
+    history: list[AssistantMessageIn] = Field(default_factory=list, max_length=20)
+
+
+class AssistantChatResponse(BaseModel):
+    job_id: int
+    answer: str
+    model: str
 
 
 class LoginRequest(BaseModel):

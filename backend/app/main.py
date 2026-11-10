@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.adapters import tools_status
 from app.api.auth_routes import router as auth_router
 from app.api.integration_routes import router as integration_router
+from app.api.llm_routes import router as llm_router
 from app.api.routes import router
 from app.config import Settings, get_settings
 from app.core.authz import validate_allowlist
@@ -108,7 +109,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title="Ethoscan",
     description="Orquestrador de pentest ético (Assess) — local-first; intensidade safe recomendada",
-    version="0.4.0",
+    version="0.5.0",
     lifespan=lifespan,
 )
 
@@ -123,6 +124,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(router)
+app.include_router(llm_router)
 app.include_router(integration_router)
 
 
@@ -145,6 +147,7 @@ def health() -> HealthOut:
         auth_enabled=settings.auth_enabled,
         local_login_available=settings.local_user_configured,
         local_login_2fa=settings.local_user_2fa_enabled,
+        llm_enabled=settings.llm_enabled,
         redis_ok=redis_ok,
         worker_ok=worker_ok,
         worker_hint=worker_hint,

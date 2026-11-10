@@ -22,7 +22,7 @@
       <header class="hero">
         <div class="hero-top">
           <h1 class="brand">Ethoscan</h1>
-          <span class="version-label" id="appVersion">v0.4.0</span>
+          <span class="version-label" id="appVersion">v0.5.0</span>
           <button class="theme-toggle" id="btnTheme" type="button" aria-label="Alternar tema">
             Tema: sistema
           </button>
@@ -133,6 +133,9 @@
           <button class="tab" type="button" role="tab" data-tab="lab" aria-selected="false">
             Lab
           </button>
+          <button class="tab" type="button" role="tab" data-tab="assistant" aria-selected="false">
+            Assistente
+          </button>
         </nav>
 
         <section class="tab-panel active" data-panel="dashboard">
@@ -232,6 +235,43 @@
             <div class="list" id="historyList">
               <p class="meta">Sem histórico ainda.</p>
             </div>
+          </div>
+        </section>
+
+        <section class="tab-panel" data-panel="assistant" hidden>
+          <div class="panel">
+            <h2>Assistente LLM (aikido)</h2>
+            <p class="meta" id="assistantMeta">
+              Analista consultivo: tria findings (real/falso positivo), correlaciona achados e
+              responde perguntas sobre o job. Advisory-only — nunca executa scans. Requer
+              ETHOSCAN_LLM_BASE_URL/MODEL no .env da API.
+            </p>
+            <div class="field mt-md">
+              <label for="assistantJobSelect">Job analisado</label>
+              <select id="assistantJobSelect"></select>
+            </div>
+            <div class="row mt-sm">
+              <button class="btn" type="button" id="btnAnalyzeJob" disabled>
+                Analisar achados
+              </button>
+              <button class="btn secondary" type="button" id="btnClearAssistant">
+                Limpar conversa
+              </button>
+            </div>
+            <div class="assistant-output" id="assistantAnalysis" hidden></div>
+            <div class="chat-log" id="assistantChatLog">
+              <p class="meta">Pergunte ao assistente sobre o job selecionado.</p>
+            </div>
+            <form id="assistantForm" class="row mt-sm">
+              <input
+                id="assistantQuestion"
+                type="text"
+                placeholder="Ex.: por que o nmap falhou? este XSS é real?"
+                maxlength="4000"
+                autocomplete="off"
+              />
+              <button class="btn" type="submit" id="btnAssistantSend">Enviar</button>
+            </form>
           </div>
         </section>
 

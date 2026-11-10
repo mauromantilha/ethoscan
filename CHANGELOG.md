@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.5.0] — 2026-11-10
+
+Analista assistente LLM ("aikido"): triagem de findings, correlação e chat sobre o job —
+**advisory-only** (o modelo nunca executa scans). Qualquer endpoint OpenAI-compatível.
+
+### Assistente LLM
+
+- `POST /api/jobs/{id}/analyze`: tria cada finding como `real` / `false_positive` /
+  `inconclusive` / `informational` com confiança e justificativa, correlaciona achados em
+  cadeias plausíveis, sugere próximos passos MANUAIS e lista limitações de cobertura
+  (WAF/CDN, tools que falharam).
+- `POST /api/jobs/{id}/assistant`: chat sobre o job com histórico limitado (20 msgs,
+  papéis user/assistant validados).
+- `/health` expõe `llm_enabled`; sem `ETHOSCAN_LLM_BASE_URL`+`ETHOSCAN_LLM_MODEL` os
+  endpoints respondem 503 e nada é enviado a terceiros.
+- Data minimization: ao provedor vão apenas metadados do job e findings TRUNCADOS
+  (título, severidade, tool, alvo, descrição 400 chars, evidência 300 chars, máx. 60
+  findings). Artefactos brutos, outputs completos e credenciais não saem do host.
+- System prompt fixo: ceticismo com falsos positivos de scanner, awareness de edge
+  Cloudflare/CDN, proibição de sugerir ações fora do RoE; respostas em pt-BR.
+- Auditoria: `llm_analyze` / `llm_assistant` com modelo e contagens (pergunta truncada).
+- Desktop: aba **Assistente** — seletor de job, botão "Analisar achados" com triagem
+  renderizada e chat com bolhas de conversa.
+- 11 testes novos (provedor mockado via httpx; nenhum teste fala com LLM real).
+
 ## [0.4.0] — 2026-11-10
 
 Login local com 2FA (TOTP/authenticator app) e correções de instalação do desktop.

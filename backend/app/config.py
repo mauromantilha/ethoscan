@@ -82,6 +82,16 @@ class Settings(BaseSettings):
     ethoscan_log_level: str = "INFO"
     ethoscan_log_format: str = "text"
 
+    # LLM consultivo (advisory-only): analista assistente para triagem de
+    # findings, correlação e chat sobre o job. Endpoint OpenAI-compatível:
+    # Ollama (http://host.docker.internal:11434/v1), LM Studio, OpenAI,
+    # Groq, vLLM... Vazio = feature desligada (nada é enviado a terceiros).
+    ethoscan_llm_base_url: str = ""
+    ethoscan_llm_api_key: str = ""
+    ethoscan_llm_model: str = ""
+    ethoscan_llm_timeout_seconds: int = 90
+    ethoscan_llm_max_tokens: int = 2000
+
     # Allowlist global de alvos (CSV) — vazio = sem restrição adicional além do escopo
     # do engagement. Ex.: ETHOSCAN_ALLOWLIST=lab.exemplo.com,10.10.0.0/24
     ethoscan_allowlist: str = ""
@@ -117,6 +127,11 @@ class Settings(BaseSettings):
     def service_keys(self) -> list[str]:
         """Chaves de serviço (CSV), sem entradas vazias."""
         return [key.strip() for key in self.ethoscan_service_keys.split(",") if key.strip()]
+
+    @property
+    def llm_enabled(self) -> bool:
+        """Assistente LLM ativo apenas com endpoint + modelo configurados."""
+        return bool(self.ethoscan_llm_base_url.strip() and self.ethoscan_llm_model.strip())
 
     @property
     def worker_id(self) -> str:

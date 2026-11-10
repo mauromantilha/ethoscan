@@ -426,6 +426,15 @@ ipcMain.handle("api:listFindings", async (_event, filters = {}) => {
   return apiFetch(`/api/findings${q}`);
 });
 
+// Analista assistente LLM (advisory-only): triagem e chat sobre um job.
+ipcMain.handle("api:analyzeJob", async (_event, jobId) =>
+  apiFetch(`/api/jobs/${jobId}/analyze`, { method: "POST", body: {} }),
+);
+
+ipcMain.handle("api:assistantChat", async (_event, jobId, payload) =>
+  apiFetch(`/api/jobs/${jobId}/assistant`, { method: "POST", body: payload }),
+);
+
 ipcMain.handle("api:downloadReport", async (event, jobId) => {
   const config = readConfig();
   const url = `${config.apiBaseUrl}/api/jobs/${jobId}/report`;

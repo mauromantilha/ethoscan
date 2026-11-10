@@ -67,6 +67,15 @@ const el = {
   btnCancelProgress: document.getElementById("btnCancelProgress"),
   btnOpenReport: document.getElementById("btnOpenReport"),
   btnOpenReportPdf: document.getElementById("btnOpenReportPdf"),
+  assistantMeta: document.getElementById("assistantMeta"),
+  assistantJobSelect: document.getElementById("assistantJobSelect"),
+  btnAnalyzeJob: document.getElementById("btnAnalyzeJob"),
+  btnClearAssistant: document.getElementById("btnClearAssistant"),
+  assistantAnalysis: document.getElementById("assistantAnalysis"),
+  assistantChatLog: document.getElementById("assistantChatLog"),
+  assistantForm: document.getElementById("assistantForm"),
+  assistantQuestion: document.getElementById("assistantQuestion"),
+  btnAssistantSend: document.getElementById("btnAssistantSend"),
 };
 
 let selectedEngagement = null;
@@ -81,6 +90,8 @@ let updateCheckInFlight = false;
 let checkedUpdateAfterConnect = false;
 let activeTab = "dashboard";
 let requires2fa = false;
+let assistantHistory = [];
+let llmConfigured = null;
 
 function setBusy(value) {
   busy = value;
@@ -496,6 +507,105 @@ function renderHistory(items) {
     .join("");
 }
 
+function renderAssistantJobOptions(jobs, history) {
+  if (!el.assistantJobSelect) return;
+  const seen = new Map();
+  for (const j of jobs) seen.set(j.id, `Job #${j.id} · ${j.status} · eng ${j.engagement_id}`);
+  for (const h of history || []) seen.set(h.job_id, `Job #${h.job_id} · ${h.engagement_name}`);
+  const current = el.assistantJobSelect.value;
+  const options = [...seen.entries()]
+    .map(([id, label]) => `<option value="${id}">${escapeHtml(label)}</option>`)
+    .join("");
+  el.assistantJobSelect.innerHTML = options || '<option value="">Sem jobs ainda</option>';
+  if (current && seen.has(Number(current))) el.assistantJobSelect.value = current;
+}
+
+function updateAssistantAvailability(health) {
+  llmConfigured = Boolean(health && health.llm_enabled);
+  if (el.assistantMeta) {
+    el.assistantMeta.textContent = llmConfigured
+      ? "Assistente ativo — analista consultivo: tria findings, correlaciona achados e responde sobre o job. Advisory-only: nunca executa scans."
+      : "Assistente LLM desligado — defina ETHOSCAN_LLM_BASE_URL e ETHOSCAN_LLM_MODEL no .env da API (ex.: Ollama local) e reinicie a API.";
+  }
+  const hasJob = Boolean(el.assistantJobSelect && el.assistantJobSelect.value);
+  if (el.btnAnalyzeJob) el.btnAnalyzeJob.disabled = !llmConfigured || !hasJob;
+  if (el.btnAssistantSend) el.btnAssistantSend.disabled = !llmConfigured || !hasJob;
+}
+
+function renderAssistantAnalysis(analysis) {
+  if (!el.assistantAnalysis) return;
+  const verdictLabel = {
+    real: "real",
+    false_positive: "falso positivo",
+    inconclusive: "inconclusivo",
+    informational: "informativo",
+  };
+  const rows = (analysis.triage || [])
+    .map(
+      (t) => `<div class="item">
+        <strong>#${t.finding_id} → ${escapeHtml(verdictLabel[t.verdict] || t.verdict)}
+          (${Math.round((t.confidence || 0) * 100)}%)</strong>
+        <div class="meta">${escapeHtml(t.reasoning || "")}</div>
+      </div>`,
+    )
+    .join("");
+  const section = (title, items) =>
+    items && items.length
+      ? `<h3>${escapeHtml(title)}</h3>${items.map((i) => `<div class="meta">• ${escapeHtml(i)}</div>`).join("")}`
+      : "";
+  el.assistantAnalysis.innerHTML = `
+    <h3>Análise (modelo ${escapeHtml(analysis.model || "?")})</h3>
+    <p>${escapeHtml(analysis.summary || "")}</p>
+    ${section("Triagem", null) && rows ? `<div class="list mt-sm">${rows}</div>` : ""}
+    ${section("Correlações", analysis.correlations)}
+    ${section("Próximos passos", analysis.next_steps)}
+    ${section("Limitações", analysis.limitations)}
+    <p class="meta">${escapeHtml(analysis.advisory_note || "")}</p>`;
+  el.assistantAnalysis.hidden = false;
+}
+
+function appendAssistantMessage(role, text) {
+  if (!el.assistantChatLog) return;
+  if (assistantHistory.length === 0) el.assistantChatLog.innerHTML = "";
+  const bubble = document.createElement("div");
+  bubble.className = `chat-bubble ${role}`;
+  bubble.textContent = text;
+  el.assistantChatLog.appendChild(bubble);
+  el.assistantChatLog.scrollTop = el.assistantChatLog.scrollHeight;
+}
+
+async function runAssistantAnalysis(jobId) {
+  if (el.btnAnalyzeJob) el.btnAnalyzeJob.disabled = true;
+  appendAssistantMessage("user", `Analisar achados do job #${jobId}`);
+  try {
+    const analysis = await window.ethoscan.analyzeJob(jobId);
+    renderAssistantAnalysis(analysis);
+    appendAssistantMessage(
+      "assistant",
+      `Resumo: ${analysis.summary}\nTriagem: ${(analysis.triage || []).length} finding(s). Ver detalhes acima.`,
+    );
+  } catch (err) {
+    appendAssistantMessage("assistant", `Erro: ${err.message || err}`);
+  } finally {
+    updateAssistantAvailability({ llm_enabled: llmConfigured });
+  }
+}
+
+async function runAssistantChat(jobId, question) {
+  appendAssistantMessage("user", question);
+  try {
+    const response = await window.ethoscan.assistantChat(jobId, {
+      question,
+      history: assistantHistory.slice(-10),
+    });
+    appendAssistantMessage("assistant", response.answer);
+    assistantHistory.push({ role: "user", content: question });
+    assistantHistory.push({ role: "assistant", content: response.answer });
+  } catch (err) {
+    appendAssistantMessage("assistant", `Erro: ${err.message || err}`);
+  }
+}
+
 function renderFindings(findings) {
   el.findingsTitle.textContent = selectedEngagement
     ? `Achados (engagement #${selectedEngagement})`
@@ -662,6 +772,8 @@ async function refresh() {
     renderJobs(jobs);
     renderFindings(findings);
     renderHistory(history || []);
+    renderAssistantJobOptions(jobs, history || []);
+    updateAssistantAvailability(health);
 
     el.connectionStatus.textContent = health.redis_ok
       ? `API ok · Redis ok · worker ${health.worker_ok ? "ok" : "DOWN"} · auth ${
@@ -932,6 +1044,33 @@ el.btnDismissProgress.addEventListener("click", () => {
   stopProgressWatch();
   watchingJobId = null;
   if (el.progressDialog.open) el.progressDialog.close();
+});
+
+el.assistantJobSelect?.addEventListener("change", () => {
+  assistantHistory = [];
+  if (el.assistantChatLog) el.assistantChatLog.innerHTML = '<p class="meta">Pergunte ao assistente sobre o job selecionado.</p>';
+  if (el.assistantAnalysis) el.assistantAnalysis.hidden = true;
+  updateAssistantAvailability({ llm_enabled: llmConfigured });
+});
+
+el.btnAnalyzeJob?.addEventListener("click", () => {
+  const jobId = Number(el.assistantJobSelect.value);
+  if (jobId) runAssistantAnalysis(jobId);
+});
+
+el.btnClearAssistant?.addEventListener("click", () => {
+  assistantHistory = [];
+  if (el.assistantChatLog) el.assistantChatLog.innerHTML = '<p class="meta">Conversa limpa. Pergunte ao assistente sobre o job selecionado.</p>';
+  if (el.assistantAnalysis) el.assistantAnalysis.hidden = true;
+});
+
+el.assistantForm?.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const jobId = Number(el.assistantJobSelect.value);
+  const question = el.assistantQuestion.value.trim();
+  if (!jobId || !question || !llmConfigured) return;
+  el.assistantQuestion.value = "";
+  await runAssistantChat(jobId, question);
 });
 
 el.btnCopyJobId.addEventListener("click", () => {
