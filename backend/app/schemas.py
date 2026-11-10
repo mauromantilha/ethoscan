@@ -236,6 +236,7 @@ class HealthOut(BaseModel):
     mock_allowed: bool
     auth_enabled: bool
     local_login_available: bool = False
+    local_login_2fa: bool = False
     redis_ok: bool
     worker_ok: bool = False
     worker_hint: str
@@ -246,6 +247,8 @@ class HealthOut(BaseModel):
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=128)
     password: str = Field(min_length=1, max_length=256)
+    # Opcional: obrigatório quando ETHOSCAN_LOCAL_TOTP_SECRET está configurado.
+    totp_code: str | None = Field(default=None, max_length=16)
 
 
 class LoginResponse(BaseModel):

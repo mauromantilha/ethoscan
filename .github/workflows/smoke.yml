@@ -87,6 +87,7 @@ jobs:
           dpkg-deb -f release/*.deb Package
           dpkg-deb -f release/*.deb Depends | grep -q 'libgtk-3-0'
           test -x release/linux-unpacked/ethoscan
+          dpkg-deb --ctrl-tarfile release/*.deb | tar -xO ./postinst | grep -q 'chmod 4755'
       - name: Dependency audit (não bloqueante)
         continue-on-error: true
         run: npm audit --audit-level=high

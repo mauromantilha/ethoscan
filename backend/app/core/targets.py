@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import socket
 from urllib.parse import urlsplit
 
 
@@ -28,6 +29,35 @@ def target_host(target: str) -> str:
         if host and port.isdigit():
             return host
     return value
+
+
+def target_resolution(target: str) -> tuple[list[str], str | None]:
+    """Resolve um alvo para endereços IP (A/AAAA).
+
+    IPs e CIDRs não precisam de DNS. Devolve ``(addresses, error)``; ``error``
+    é uma mensagem curta quando o hostname não resolve (ex.: apex sem A/AAAA).
+    """
+    host = target_host(target)
+    if not host:
+        return [], "alvo vazio"
+    try:
+        ipaddress.ip_address(host)
+        return [host], None
+    except ValueError:
+        pass
+    try:
+        ipaddress.ip_network(host, strict=False)
+        return [host], None
+    except ValueError:
+        pass
+    try:
+        infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        return [], f"DNS não resolveu {host!r} ({exc.strerror or exc})"
+    addresses = sorted({info[4][0] for info in infos})
+    if not addresses:
+        return [], f"DNS não devolveu endereços para {host!r}"
+    return addresses, None
 
 
 def target_url(target: str, scheme: str = "http") -> str:

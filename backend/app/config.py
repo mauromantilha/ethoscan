@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     # Utilizador local (desktop/lab) — password apenas como hash bcrypt
     ethoscan_local_username: str = ""
     ethoscan_local_password_hash: str = ""
+    # 2FA TOTP (authenticator app) para o login local. Vazio = desativado.
+    # Segredo base32; gere com: python -c "import pyotp; print(pyotp.random_base32())"
+    ethoscan_local_totp_secret: str = ""
+    ethoscan_local_totp_issuer: str = "Ethoscan"
     # TTL dos tokens de sessão emitidos por POST /api/auth/login (horas)
     ethoscan_session_ttl_hours: int = 12
     # Incrementar invalida todas as sessões emitidas (Redis e fallback memória).
@@ -103,6 +107,11 @@ class Settings(BaseSettings):
             self.ethoscan_local_username.strip()
             and self.ethoscan_local_password_hash.strip()
         )
+
+    @property
+    def local_user_2fa_enabled(self) -> bool:
+        """2FA TOTP ativo apenas quando há segredo configurado."""
+        return bool(self.ethoscan_local_totp_secret.strip())
 
     @property
     def service_keys(self) -> list[str]:

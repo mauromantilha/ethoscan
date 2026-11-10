@@ -1,0 +1,69 @@
+# Variante do backend com as tools de pentest instaladas no container.
+# Use com ETHOSCAN_DOCKERFILE=Dockerfile.tools (ver .env.example).
+#
+# Inclui o pipeline clássico (nmap, whatweb, gobuster, sslscan, nuclei) e
+# opcionais disponíveis em Debian: nikto, masscan, sqlmap, hydra, john.
+# Metasploit, ZAP, NetExec, BloodHound.py e unicornscan não estão nos repos
+# Debian — para esses, use um host/VM Kali (docs/kali-setup.md).
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Nikto está em non-free no Debian; habilita a componente antes do apt.
+RUN set -eux; \
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+      sed -i 's/^Components: main$/Components: main contrib non-free non-free-firmware/' \
+        /etc/apt/sources.list.d/debian.sources; \
+    elif [ -f /etc/apt/sources.list ]; then \
+      sed -i 's/ main$/ main contrib non-free non-free-firmware/' /etc/apt/sources.list; \
+    fi; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      curl ca-certificates passwd unzip libcap2-bin \
+      nmap whatweb gobuster sslscan nikto masscan sqlmap hydra john dirb; \
+    rm -rf /var/lib/apt/lists/*
+
+# cf. Dockerfile.kali: file caps fora do bounding set do worker causam EPERM
+# no exec (nmap/masscan). Worker é root + NET_RAW/NET_ADMIN: caps redundantes.
+RUN set -eux; getcap -r / 2>/dev/null | awk '{print $1}' | xargs -r -n1 setcap -r; \
+    getcap -r / 2>/dev/null | grep . && exit 1 || true
+
+# Wordlist esperada pelo adapter Gobuster.
+RUN mkdir -p /usr/share/wordlists/dirb \
+    && if [ -f /usr/share/dirb/wordlists/common.txt ]; then \
+         ln -sf /usr/share/dirb/wordlists/common.txt /usr/share/wordlists/dirb/common.txt; \
+       fi \
+    && if [ -f /usr/share/dirb/wordlists/small.txt ]; then \
+         ln -sf /usr/share/dirb/wordlists/small.txt /usr/share/wordlists/dirb/small.txt; \
+       fi
+
+# Nuclei não está nos repos Debian; instala o binário oficial.
+ARG NUCLEI_VERSION=3.11.1
+ARG TARGETARCH=amd64
+RUN case "$TARGETARCH" in \
+      amd64) NUCLEI_ARCH=amd64 ;; \
+      arm64) NUCLEI_ARCH=arm64 ;; \
+      *) echo "arquitetura não suportada: $TARGETARCH" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL \
+      "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_linux_${NUCLEI_ARCH}.zip" \
+      -o /tmp/nuclei.zip \
+    && unzip -q /tmp/nuclei.zip -d /usr/local/bin nuclei \
+    && chmod +x /usr/local/bin/nuclei \
+    && rm -f /tmp/nuclei.zip \
+    && (nuclei -update-templates || true)
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+RUN mkdir -p /app/artifacts \
+    && useradd --create-home --uid 1000 app \
+    && chown -R app:app /app
+USER app
+
+EXPOSE 8000
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

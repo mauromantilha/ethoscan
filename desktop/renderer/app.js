@@ -17,6 +17,8 @@ const el = {
   apiBaseUrl: document.getElementById("apiBaseUrl"),
   username: document.getElementById("username"),
   password: document.getElementById("password"),
+  totpField: document.getElementById("totpField"),
+  totpCode: document.getElementById("totpCode"),
   apiKey: document.getElementById("apiKey"),
   btnLogin: document.getElementById("btnLogin"),
   btnSkipAuth: document.getElementById("btnSkipAuth"),
@@ -78,6 +80,7 @@ let defaultPipeline = ["nmap", "whatweb", "gobuster", "sslscan", "nuclei"];
 let updateCheckInFlight = false;
 let checkedUpdateAfterConnect = false;
 let activeTab = "dashboard";
+let requires2fa = false;
 
 function setBusy(value) {
   busy = value;
@@ -173,6 +176,7 @@ function switchTab(name) {
 function showLogin() {
   el.loginPanel.hidden = false;
   el.appPanels.hidden = true;
+  if (el.totpCode) el.totpCode.value = "";
   if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
@@ -686,15 +690,21 @@ async function probeLoginGate() {
   let health = null;
   try {
     health = await window.ethoscan.health();
-    el.loginStatus.textContent = health.local_login_available
-      ? "API ok — entre com utilizador/palavra-passe local."
-      : health.auth_enabled
-        ? "API ok — auth ativa (X-API-Key ou login local se configurado)."
-        : "API ok — auth desligada (lab). Pode continuar sem login.";
+    requires2fa = Boolean(health.local_login_2fa);
+    if (el.totpField) el.totpField.hidden = !requires2fa;
+    el.loginStatus.textContent = requires2fa
+      ? "API ok — entre com utilizador, palavra-passe e código 2FA."
+      : health.local_login_available
+        ? "API ok — entre com utilizador/palavra-passe local."
+        : health.auth_enabled
+          ? "API ok — auth ativa (X-API-Key ou login local se configurado)."
+          : "API ok — auth desligada (lab). Pode continuar sem login.";
     el.btnSkipAuth.hidden = Boolean(health.auth_enabled);
   } catch (err) {
     el.loginStatus.textContent = `API indisponível — ${err.message || err}`;
     el.btnSkipAuth.hidden = true;
+    requires2fa = false;
+    if (el.totpField) el.totpField.hidden = true;
     showLogin();
     return;
   }
@@ -731,15 +741,23 @@ el.loginForm.addEventListener("submit", async (ev) => {
     const base = el.apiBaseUrl.value.trim() || "http://127.0.0.1:8000";
     const user = el.username.value.trim();
     const pass = el.password.value;
+    const totp = el.totpCode ? el.totpCode.value.trim() : "";
     const key = el.apiKey.value.trim();
 
     if (user && pass) {
+      if (requires2fa && !totp) {
+        el.loginStatus.textContent =
+          "Introduza o código de 6 dígitos do authenticator app.";
+        return;
+      }
       const config = await window.ethoscan.login({
         apiBaseUrl: base,
         username: user,
         password: pass,
+        totpCode: totp,
       });
       el.password.value = "";
+      if (el.totpCode) el.totpCode.value = "";
       checkedUpdateAfterConnect = false;
       showApp(config);
       switchTab("dashboard");

@@ -25,8 +25,11 @@ primeiro paint (sem flash).
 
    ```bash
    ETHOSCAN_DISABLE_AUTH=false
-   ETHOSCAN_LOCAL_USERNAME=mauro
+   ETHOSCAN_LOCAL_USERNAME=mauromantilha
    ETHOSCAN_LOCAL_PASSWORD_HASH='...(bcrypt)...'
+   # 2FA opcional (authenticator app) — vazio desativa:
+   ETHOSCAN_LOCAL_TOTP_SECRET='...base32...'
+   ETHOSCAN_LOCAL_TOTP_ISSUER=Ethoscan
    # opcional para CLI: ETHOSCAN_API_KEY=...
    ```
 
@@ -36,8 +39,22 @@ primeiro paint (sem flash).
    python3 -c "import bcrypt; print(bcrypt.hashpw(b'YOUR_PASSWORD', bcrypt.gensalt()).decode())"
    ```
 
+   Gerar segredo TOTP e URI para o authenticator:
+
+   ```bash
+   python3 -c "import pyotp; print(pyotp.random_base32())"
+   ```
+
+   URI: `otpauth://totp/Ethoscan:<utilizador>?secret=<segredo>&issuer=Ethoscan`.
+
 2. Suba API + Redis + worker.
-3. Abra o desktop, indique a URL base, utilizador e palavra-passe → **Entrar**.
+3. Abra o desktop, indique a URL base, utilizador, palavra-passe e, se ativo, o
+   **código 2FA** de 6 dígitos → **Entrar**.
+
+> **Perdeu o authenticator?** Remova/altere `ETHOSCAN_LOCAL_TOTP_SECRET` no `.env` e
+> reinicie a API para voltar a entrar só com password; gere um novo segredo/QR depois.
+> Não há códigos de recuperação nesta versão. Mantenha o relógio do servidor e do
+> telemóvel sincronizados (NTP); a verificação tolera ±30s.
 4. A sessão (token + username + URL) fica em `ethoscan-desktop.json` no userData; **Sair** limpa o token.
    O token é cifrado com `safeStorage` quando o keyring do SO está disponível (fallback:
    ficheiro com permissões `0600`). `config:get` devolve apenas `hasApiKey`, nunca o token.
@@ -52,7 +69,9 @@ A app empacotada usa [electron-updater](https://www.electron.build/auto-update) 
 - Verifica ao **arranque** (mesmo se a API local estiver offline) e de novo ao **conectar / login** (e no botão **Verificar** / **Atualizar**).
 - UI em pt-BR: a verificar / disponível / a descarregar / pronta (reiniciar) / atualizado / erro.
 - **Windows:** o auto-update aplica-se à instalação **NSIS**. O build **portable** continua a ser gerado, mas **não** atualiza in-place de forma fiável — use o instalador NSIS.
-- **Linux:** AppImage pode atualizar; `.deb` tipicamente exige reinstalar o pacote.
+- **Linux:** AppImage pode atualizar. No `.deb` a app **não** tenta instalar sem root:
+  mostra o comando `sudo apt update && sudo apt install --only-upgrade ethoscan` (ou
+  reinstale o `.deb`).
 - Sem code signing por agora (uso lab/privado). O Windows SmartScreen pode avisar em binários não assinados.
   Para lab/offline, desative o updater com `ETHOSCAN_DISABLE_UPDATER=1` ao arrancar a app.
 - Em `npm start` (dev) o updater é no-op e mostra que só funciona na app empacotada.
@@ -85,11 +104,23 @@ npm run dist
 
 | Script | Resultado típico |
 |--------|------------------|
-| `dist:linux` | `Ethoscan-0.3.0-x86_64.AppImage`, `ethoscan_0.3.0_amd64.deb` |
-| `dist:win` | `Ethoscan-0.3.0-win-x64.exe` (NSIS), `Ethoscan-0.3.0-win-x64-portable.exe` |
+| `dist:linux` | `Ethoscan-0.4.0-x86_64.AppImage`, `ethoscan_0.4.0_amd64.deb` |
+| `dist:win` | `Ethoscan-0.4.0-win-x64.exe` (NSIS), `Ethoscan-0.4.0-win-x64-portable.exe` |
 
-No Debian/Ubuntu, instale o `.deb` com `sudo apt install ./ethoscan_0.3.0_amd64.deb`
+No Debian/Ubuntu, instale o `.deb` com `sudo apt install ./ethoscan_0.4.0_amd64.deb`
 (ou `./scripts/install-deb.sh`); ver [`docs/desktop-linux.md`](../docs/desktop-linux.md).
+
+### Problemas de arranque no Linux
+
+- **`.deb` instalado mas a janela não abre / aborta com "SUID sandbox helper binary…":**
+  `sudo chmod 4755 /opt/Ethoscan/chrome-sandbox` (o postinst 0.3.1+ já faz isto). Confirme
+  com `stat -c '%a %U' /opt/Ethoscan/chrome-sandbox` → `4755 root`.
+- **AppImage:** requer `libfuse2`/`libfuse2t64`. O AppImage 0.3.1+ adiciona
+  `--no-sandbox` automaticamente quando corre a partir de um AppImage (não consegue usar
+  SUID); o `.deb` é o caminho recomendado para manter o sandbox ativo.
+- **`npm start` em Ubuntu 23.10+:** o Electron de desenvolvimento também aborta sem SUID.
+  Use `npm start -- --no-sandbox` (apenas dev) ou ajuste o `chrome-sandbox` do
+  `node_modules/electron/dist` como root.
 
 Cross-compilar Windows a partir de Linux não é o caminho suportado; use o workflow de CI ou uma máquina Windows.
 
@@ -102,8 +133,8 @@ O workflow [`.github/workflows/desktop-release.yml`](../.github/workflows/deskto
 
    ```bash
    git checkout main && git pull
-   git tag -a v0.3.0 -m "Ethoscan Desktop v0.3.0"
-   git push origin v0.3.0
+   git tag -a v0.4.0 -m "Ethoscan Desktop v0.4.0"
+   git push origin v0.4.0
    ```
 
 3. O CI gera artefactos Linux (ubuntu) e Windows (`*.exe`, `latest.yml`, blockmaps), e anexa-os a um [GitHub Release](https://github.com/mauromantilha/ethoscan/releases) com o mesmo nome da tag

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.adapters.base import AdapterResult, BaseAdapter, RawFinding
+from app.adapters.base import AdapterResult, BaseAdapter, RawFinding, artifact_name
 from app.core.targets import target_host
 from app.models import Severity
 
@@ -13,13 +13,41 @@ class SslscanAdapter(BaseAdapter):
 
     def _run_real(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
         host = target_host(target)
-        out_file = job_dir / "sslscan.txt"
+        out_file = job_dir / artifact_name(self.name, target, "txt")
         timeout = 45 if intensity == "safe" else (75 if intensity == "standard" else 120)
         cmd = ["sslscan", "--no-colour", "--no-heartbleed", host]
         if intensity == "safe":
             cmd = ["sslscan", "--no-colour", "--no-heartbleed", "--no-compression", host]
         stdout, stderr, _ = self._exec(cmd, timeout=timeout)
-        out_file.write_text(stdout)
+        out_file.write_text(stdout or (f"# stderr:\n{stderr}" if stderr else ""))
+        lower = stdout.lower()
+        has_tls_data = any(
+            marker in lower
+            for marker in (
+                "connected to",
+                "subject:",
+                "issuer:",
+                "tlsv1.2   enabled",
+                "tlsv1.3   enabled",
+            )
+        )
+        if "unable to parse certificate" in lower or not has_tls_data:
+            # Só a versão/handshake falhado não é um resultado de TLS: não inventar
+            # "varredura concluída" quando não houve ligação/certificado utilizável.
+            return AdapterResult(
+                tool=self.name,
+                mocked=False,
+                command=cmd,
+                stdout=stdout,
+                stderr=stderr,
+                error=(
+                    "sslscan não obteve ligação TLS/certificado utilizável "
+                    f"(alvo inacessível, WAF ou handshake bloqueado): "
+                    f"{(stderr or 'sem stderr').strip()[:500]}"
+                ),
+                findings=[],
+                artifact_path=str(out_file),
+            )
         findings = self._parse(stdout, target)
         return AdapterResult(
             tool=self.name,
@@ -40,7 +68,7 @@ class SslscanAdapter(BaseAdapter):
             "SSL 3  disabled\n"
             "TLS 1.0 enabled\n"
         )
-        path = job_dir / "sslscan.txt"
+        path = job_dir / artifact_name(self.name, target, "txt")
         path.write_text(stdout)
         return AdapterResult(
             tool=self.name,

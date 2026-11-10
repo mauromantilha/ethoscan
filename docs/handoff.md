@@ -3,21 +3,31 @@
 > Documento operacional para **retomar o trabalho** (agente ou humano) sem reler a conversa toda.
 > Atualize ao mudar o estado. **Nunca coloque segredos aqui**: valores vivem no `.env` (gitignored).
 
-## Onde o projeto está (2026-11-09)
+## Onde o projeto está (2026-11-10)
 
-- `main` = `43d6ede` — fases 0–7 commitadas (`2a1819e` release, `43d6ede` docs/APT).
+- **0.4.0 em preparação** — login local com 2FA TOTP (`ETHOSCAN_LOCAL_TOTP_SECRET`), campo
+  **Código 2FA** no desktop; inclui as correções de instalação da 0.3.1
+  (`chrome-sandbox` 4755, wrapper do AppImage, updater `.deb` via `apt`).
+- `main` = `48f66c6` (release 0.3.0) + working tree 0.4.0.
 - **Release 0.3.0 publicado** (tag `v0.3.0`, GitHub Release com AppImage/`.deb`/`.exe`/
   `SHA256SUMS.txt`); teste Debian 12 passou.
 - **Repositório APT publicado** em <https://mauromantilha.github.io/ethoscan> (branch
   `gh-pages`, chave GPG `F14D 7665 D743 07E3 33F6 CD65 35C1 D6BE 8BC7 72DD`).
-- Suíte: **126 passed** (`cd backend && .venv/bin/pytest -q`). CI: `.github/workflows/smoke.yml`
+- Suíte: **141 passed** (`cd backend && .venv/bin/pytest -q`; também validado em Python 3.13).
+  CI: `.github/workflows/smoke.yml`
   roda ruff, pytest com cobertura mínima de 70%, build do frontend, package do desktop e shellcheck
   em cada PR/push.
-- Stack Docker no host do Ethoscan (LAN `192.168.0.7`) **rodando**: `api` (rede `:8000`, `--proxy-headers`),
-  `worker`, `redis` (rede interna, AOF, sem porta no host), `postgres` (loopback `:15432`), `web` (loopback `:3000`).
+- Stack Docker definido no compose: `api` (`:8000`), `worker`, `redis` (rede interna, AOF,
+  sem porta no host), `postgres` (loopback `:15432`), `web` (loopback `:3000`). Subir com
+  `docker compose up -d --build`; no host deste setup não estava a correr.
+- `ETHOSCAN_DOCKERFILE=Dockerfile.tools` inclui nmap/whatweb/gobuster/sslscan/nuclei +
+  opcionais Debian no container; `Dockerfile.kali` inclui o catálogo completo (Metasploit,
+  ZAP, NetExec, BloodHound.py, unicornscan) e venv Python 3.13. O default `Dockerfile` é
+  slim (tools vêm do host Kali).
 - Ambiente **limpo**: 0 engagements/jobs; sessões de teste revogadas no Redis.
-- `.env`: auth ligada (`ETHOSCAN_DISABLE_AUTH=false`), `API_BIND=0.0.0.0`, `ETHOSCAN_ALLOWLIST=` (**vazio** =
-  sem restrição), `ETHOSCAN_SERVICE_KEYS` com chave do n8n. Segredos **não** versionados.
+- `.env`: auth ligada (`ETHOSCAN_DISABLE_AUTH=false`), utilizador local `mauromantilha` com
+  hash bcrypt + 2FA TOTP; `API_BIND`/`ETHOSCAN_ALLOWLIST`/`ETHOSCAN_SERVICE_KEYS` conforme o
+  host. Segredos **não** versionados (`.env` é gitignored, modo 0600).
 
 ## Entregue nos últimos PRs
 

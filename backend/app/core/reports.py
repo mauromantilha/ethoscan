@@ -6,6 +6,65 @@ from pathlib import Path
 from app.models import Engagement, Finding, Job
 
 
+def _tool_runs(job: Job) -> dict:
+    """Tool runs públicas (ignora chaves internas como ``_coverage``)."""
+    return {
+        name: info
+        for name, info in (job.tool_runs or {}).items()
+        if not str(name).startswith("_")
+    }
+
+
+def _dns_coverage(job: Job) -> list[dict]:
+    coverage = (job.tool_runs or {}).get("_coverage") or {}
+    return list(coverage.get("dns") or [])
+
+
+def _coverage_rows(job: Job, findings: list[Finding]) -> list[str]:
+    """Motivos de cobertura parcial: DNS, tool falhada ou mock (sem duplicados)."""
+    rows: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    for item in _dns_coverage(job):
+        if item.get("error"):
+            rows.append(f"DNS {item.get('target')}: {item['error']}")
+    # Primeiro os tool_error por alvo (têm o motivo real do stderr).
+    for finding in findings:
+        if finding.category != "tool_error":
+            continue
+        key = (finding.tool, finding.target)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(f"{finding.tool} ({finding.target}): {finding.description}")
+    # Cloudflare/WAF: explica por que ferramentas HTTP veem challenge/edge.
+    if any(
+        "waf" in (finding.title or "").lower()
+        or "cloudflare" in (finding.title or "").lower()
+        for finding in findings
+    ):
+        rows.append(
+            "WAF/Cloudflare detetado: ferramentas HTTP podem receber challenge/edge; "
+            "usar origin/staging ou allowlist do scanner."
+        )
+    # Fallback: tool_runs sem finding correspondente (ex.: último alvo).
+    for tool, info in _tool_runs(job).items():
+        if not isinstance(info, dict):
+            continue
+        target = info.get("last_target") or "—"
+        key = (tool, target)
+        if info.get("mocked"):
+            mock_key = (tool, "mock")
+            if mock_key not in seen:
+                seen.add(mock_key)
+                rows.append(f"{tool}: executado em modo mock")
+            continue
+        if info.get("ok") is False and key not in seen:
+            seen.add(key)
+            reason = info.get("error") or f"exit code {info.get('exit_code')}"
+            rows.append(f"{tool} ({target}): falhou — {reason}")
+    return list(dict.fromkeys(rows))
+
+
 def write_html_report(
     engagement: Engagement,
     job: Job,
@@ -37,25 +96,37 @@ def build_report_html(
     job: Job,
     findings: list[Finding],
 ) -> str:
+    tool_runs = _tool_runs(job)
     tools_used = list(job.selected_tools or []) or sorted(
-        {f.tool for f in findings} | set((job.tool_runs or {}).keys())
+        {f.tool for f in findings} | set(tool_runs.keys())
     )
     tools_line = ", ".join(tools_used) if tools_used else "(pipeline clássico)"
     roe = engagement.roe_text or "RoE confirmado pelo operador (assessment só no escopo)."
-    mocked_count = sum(1 for finding in findings if finding.mocked)
+    real_findings = [f for f in findings if f.category != "tool_error"]
+    coverage_rows = _coverage_rows(job, findings)
+    mocked_count = sum(1 for finding in real_findings if finding.mocked)
     mock_notice = ""
     if mocked_count:
         mock_notice = (
             f'<div class="mock"><strong>MOCK:</strong> {mocked_count} de '
-            f"{len(findings)} achado(s) foram gerados em modo mock. "
+            f"{len(real_findings)} achado(s) foram gerados em modo mock. "
             "Estes resultados não representam um scan real.</div>"
+        )
+    coverage_html = ""
+    if coverage_rows:
+        coverage_items = "".join(f"<li>{_esc(row)}</li>" for row in coverage_rows)
+        coverage_html = (
+            '<h2>Cobertura / limitações</h2>'
+            '<div class="coverage"><ul>'
+            f"{coverage_items}"
+            "</ul></div>"
         )
     finished = job.finished_at.isoformat() if job.finished_at else "—"
     rows = "\n".join(
         f"<tr><td>{f.severity.value}</td><td>{_esc(f.title)}</td><td>{_esc(f.target)}</td>"
         f"<td>{_esc(f.tool)}</td><td>{'MOCK' if f.mocked else 'real'}</td>"
         f"<td>{_esc(f.description)}</td></tr>"
-        for f in findings
+        for f in real_findings
     )
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
@@ -68,6 +139,8 @@ def build_report_html(
     .meta {{ color: #57534e; margin-bottom: 1.5rem; }}
     .roe {{ background: #fff; border-left: 4px solid #0f766e; padding: 0.75rem 1rem; margin: 1rem 0; }}
     .mock {{ background: #fef3c7; border-left: 4px solid #b45309; padding: 0.75rem 1rem; margin: 1rem 0; }}
+    .coverage {{ background: #fff; border-left: 4px solid #b45309; padding: 0.75rem 1rem; margin: 1rem 0; }}
+    .coverage ul {{ margin: 0; padding-left: 1.2rem; }}
     table {{ border-collapse: collapse; width: 100%; background: #fff; }}
     th, td {{ border: 1px solid #d6d3d1; padding: 0.6rem 0.75rem; text-align: left; vertical-align: top; }}
     th {{ background: #1c1917; color: #fafaf9; }}
@@ -91,11 +164,12 @@ def build_report_html(
   </div>
   <div class="roe"><strong>Nota RoE:</strong> {_esc(roe)}</div>
   {mock_notice}
-  <h2>Achados ({len(findings)})</h2>
+  {coverage_html}
+  <h2>Achados ({len(real_findings)})</h2>
   <table>
     <thead><tr><th>Severidade</th><th>Título</th><th>Alvo</th><th>Tool</th><th>Modo</th><th>Descrição</th></tr></thead>
     <tbody>
-      {rows or '<tr><td colspan="6">Nenhum achado.</td></tr>'}
+      {rows or '<tr><td colspan="6">Nenhum achado de segurança; ver cobertura/limitações.</td></tr>'}
     </tbody>
   </table>
 </body>
@@ -115,12 +189,15 @@ def _write_pdf_reportlab(
     from reportlab.lib.units import cm
     from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+    tool_runs = _tool_runs(job)
     tools_used = list(job.selected_tools or []) or sorted(
-        {f.tool for f in findings} | set((job.tool_runs or {}).keys())
+        {f.tool for f in findings} | set(tool_runs.keys())
     )
     tools_line = ", ".join(tools_used) if tools_used else "(pipeline clássico)"
     roe = engagement.roe_text or "RoE confirmado pelo operador (assessment só no escopo)."
-    mocked_count = sum(1 for finding in findings if finding.mocked)
+    real_findings = [f for f in findings if f.category != "tool_error"]
+    coverage_rows = _coverage_rows(job, findings)
+    mocked_count = sum(1 for finding in real_findings if finding.mocked)
     finished = job.finished_at.isoformat() if job.finished_at else "—"
 
     doc = SimpleDocTemplate(
@@ -154,25 +231,36 @@ def _write_pdf_reportlab(
             [
                 Spacer(1, 0.3 * cm),
                 Paragraph(
-                    f"<b>MOCK:</b> {mocked_count} de {len(findings)} achado(s) foram gerados "
-                    "em modo mock. Estes resultados não representam um scan real.",
+                    f"<b>MOCK:</b> {mocked_count} de {len(real_findings)} achado(s) foram "
+                    "gerados em modo mock. Estes resultados não representam um scan real.",
                     styles["Normal"],
                 ),
             ]
         )
+    if coverage_rows:
+        story.extend(
+            [
+                Spacer(1, 0.5 * cm),
+                Paragraph("<b>Cobertura / limitações</b>", styles["Heading2"]),
+            ]
+        )
+        for row in coverage_rows:
+            story.append(Paragraph(f"• {_esc(row)}", styles["Normal"]))
     story.extend(
         [
             Spacer(1, 0.5 * cm),
-            Paragraph(f"<b>Achados ({len(findings)})</b>", styles["Heading2"]),
+            Paragraph(f"<b>Achados ({len(real_findings)})</b>", styles["Heading2"]),
         ]
     )
 
     header = ["Severidade", "Título", "Alvo", "Tool", "Modo", "Descrição"]
     data = [header]
-    if not findings:
-        data.append(["—", "Nenhum achado.", "—", "—", "—", "—"])
+    if not real_findings:
+        data.append(
+            ["—", "Nenhum achado de segurança; ver cobertura.", "—", "—", "—", "—"]
+        )
     else:
-        for f in findings:
+        for f in real_findings:
             data.append(
                 [
                     f.severity.value,

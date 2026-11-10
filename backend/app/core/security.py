@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import bcrypt
+import pyotp
 import redis
 from fastapi import HTTPException, Security
 from fastapi.security import APIKeyHeader
@@ -54,6 +55,23 @@ def verify_password(plain: str, password_hash: str) -> bool:
     try:
         hashed = password_hash.strip().encode("utf-8")
         return bcrypt.checkpw(plain.encode("utf-8"), hashed)
+    except (ValueError, TypeError):
+        return False
+
+
+def verify_totp(secret: str, code: str | None) -> bool:
+    """Valida um código TOTP de 6 dígitos (authenticator app).
+
+    Aceita espaços (ex.: "123 456") e uma janela de ±30s para tolerar
+    pequenos desvios de relógio entre o servidor e o telemóvel.
+    """
+    if not secret or not code:
+        return False
+    cleaned = "".join(ch for ch in code if ch.isdigit())
+    if len(cleaned) != 6:
+        return False
+    try:
+        return pyotp.TOTP(secret.strip()).verify(cleaned, valid_window=1)
     except (ValueError, TypeError):
         return False
 
@@ -210,8 +228,10 @@ def require_api_key(api_key: str | None = Security(API_KEY_HEADER)) -> None:
     )
 
 
-def authenticate_local_user(username: str, password: str) -> tuple[str, datetime]:
-    """Valida utilizador local e emite token de sessão (não devolve a master key)."""
+def authenticate_local_user(
+    username: str, password: str, totp_code: str | None = None
+) -> tuple[str, datetime]:
+    """Valida utilizador local (+2FA opcional) e emite token de sessão."""
     settings = get_settings()
     if not settings.local_user_configured:
         raise HTTPException(
@@ -226,4 +246,12 @@ def authenticate_local_user(username: str, password: str) -> tuple[str, datetime
     password_ok = verify_password(password, password_hash)
     if not (user_ok and password_ok):
         raise HTTPException(status_code=401, detail="Utilizador ou palavra-passe inválidos.")
+    if settings.local_user_2fa_enabled and not verify_totp(
+        settings.ethoscan_local_totp_secret, totp_code
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Código 2FA inválido ou ausente. Use o código de 6 dígitos do "
+            "authenticator app.",
+        )
     return create_session_token(expected_user)

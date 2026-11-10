@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import shutil
 import subprocess
 from abc import ABC, abstractmethod
@@ -9,7 +10,15 @@ from pathlib import Path
 
 from app.config import get_settings
 from app.core.subprocess_env import subprocess_env
+from app.core.targets import target_host
 from app.models import Severity
+
+
+def artifact_name(tool: str, target: str, suffix: str) -> str:
+    """Nome de artefacto por alvo (evita overwrite/cross-target em multi-target)."""
+    host = target_host(target) or "target"
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", host).strip("_") or "target"
+    return f"{tool}-{safe}.{suffix}"
 
 
 @dataclass
@@ -95,6 +104,12 @@ class BaseAdapter(ABC):
         if result.exit_code is None and not result.mocked:
             # adapters que ignoram o 3º valor de _exec herdam o exit code real
             result.exit_code = self._last_exit_code
+        if result.exit_code not in (None, 0) and result.error is None:
+            # Preserva o motivo real (ex.: DNS) no achado de tool_error/relatório.
+            detail = (result.stderr or result.stdout or "").strip()[:500]
+            result.error = f"exit code {result.exit_code}" + (
+                f": {detail}" if detail else ""
+            )
         for finding in result.findings:
             finding.mocked = result.mocked
         return result

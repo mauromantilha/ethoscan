@@ -5,7 +5,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from app.adapters.base import AdapterResult, BaseAdapter, RawFinding
+from app.adapters.base import AdapterResult, BaseAdapter, RawFinding, artifact_name
 from app.core.targets import target_host
 from app.models import Severity
 
@@ -34,13 +34,24 @@ class NetExecAdapter(BaseAdapter):
 
     def _run_real(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
         host = target_host(target)
-        out_file = job_dir / "netexec.txt"
+        out_file = job_dir / artifact_name(self.name, target, "txt")
         timeout = 90 if intensity == "safe" else (150 if intensity == "standard" else 240)
         # Apenas enum — sem -u/-p spray, sem -x/--exec-command
         cmd = [self._bin(), "smb", host]
         stdout, stderr, _ = self._exec(cmd, timeout=timeout)
         content = stdout or stderr or ""
         out_file.write_text(content)
+        if not content.strip():
+            return AdapterResult(
+                tool=self.name,
+                mocked=False,
+                command=cmd,
+                stdout=content,
+                stderr=stderr,
+                error="netexec não devolveu output (SMB inacessível/filtrado ou host atrás de CDN)",
+                findings=[],
+                artifact_path=str(out_file),
+            )
         return AdapterResult(
             tool=self.name,
             mocked=False,
@@ -57,7 +68,7 @@ class NetExecAdapter(BaseAdapter):
             f"SMB {host} 445 [*] Windows 10 / Server 2019 (name:LAB) (domain:LAB) "
             f"(signing:True) (SMBv1:False)\n"
         )
-        path = job_dir / "netexec.txt"
+        path = job_dir / artifact_name(self.name, target, "txt")
         path.write_text(content)
         return AdapterResult(
             tool=self.name,

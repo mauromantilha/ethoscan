@@ -2,7 +2,7 @@
 
 Orquestrador local de **pentest ético** (CLI + API + dashboard + desktop + worker).
 
-> Versão **0.3.0** — mudanças/migração em [CHANGELOG.md](CHANGELOG.md); publicação em
+> Versão **0.4.0** — mudanças/migração em [CHANGELOG.md](CHANGELOG.md); publicação em
 > [docs/release-checklist.md](docs/release-checklist.md).
 
 - Pipeline **F0–F6** (gate RoE/escopo/tools → recon → enum → web → vuln → correlação → relatório)
@@ -144,9 +144,9 @@ npm run dist:linux   # → desktop/release/*.AppImage, *.deb
 npm run dist:win     # → desktop/release/*.exe (preferir Windows / CI)
 ```
 
-**GitHub Release:** push de uma tag `v*` (ex. `v0.3.0`) dispara [`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml), que constrói Linux + Windows, valida o `.deb` em Debian 12, gera `SHA256SUMS.txt` e anexa os artefactos ao release. A app empacotada (NSIS / AppImage) verifica atualizações nos Releases via electron-updater — ver [desktop/README.md](desktop/README.md).
+**GitHub Release:** push de uma tag `v*` (ex. `v0.4.0`) dispara [`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml), que constrói Linux + Windows, valida o `.deb` em Debian 12 e Ubuntu 24.04, gera `SHA256SUMS.txt` e anexa os artefactos ao release. A app empacotada (NSIS / AppImage) verifica atualizações nos Releases via electron-updater — ver [desktop/README.md](desktop/README.md).
 
-**Debian/Ubuntu:** instale com `sudo apt install ./ethoscan_<versão>_amd64.deb` (não use `dpkg -i`) ou `./scripts/install-deb.sh`. Guia completo, atualização e repositório APT em [docs/desktop-linux.md](docs/desktop-linux.md).
+**Debian/Ubuntu:** instale com `sudo apt install ./ethoscan_<versão>_amd64.deb` (não use `dpkg -i`) ou `./scripts/install-deb.sh`. Guia completo, atualização e repositório APT em [docs/desktop-linux.md](docs/desktop-linux.md). Se instalou a 0.3.0 e a app não abre, veja o troubleshooting de `chrome-sandbox` nesse guia.
 
 Repositório APT assinado (GitHub Pages): `https://mauromantilha.github.io/ethoscan` — instalação com `apt install ethoscan` e upgrades com `apt upgrade`.
 ### Com Docker
@@ -156,6 +156,33 @@ cp .env.example .env      # defina ETHOSCAN_API_KEY forte e/ou ETHOSCAN_LOCAL_* 
 docker compose up -d --build
 # sobe postgres + redis (dedicado) + api + worker + web
 ```
+
+**Tools dentro do Docker (opcional):** a imagem padrão (`python:3.12-slim`) **não** traz
+scanners — por isso `/health` mostra tudo `indisponível`. Há duas variantes:
+
+```bash
+# .env — pipeline clássico + opcionais Debian (imagem menor)
+ETHOSCAN_DOCKERFILE=Dockerfile.tools
+
+# .env — catálogo completo em Kali rolling (imagem grande, build demorado)
+ETHOSCAN_DOCKERFILE=Dockerfile.kali
+
+# depois, em qualquer dos casos:
+docker compose up -d --build api worker
+```
+
+- `Dockerfile.tools` (Debian trixie): `nmap`, `whatweb`, `gobuster`, `sslscan`, `nuclei`,
+  `nikto` (`non-free`), `masscan`, `sqlmap`, `hydra`, `john` + wordlist do Gobuster.
+- `Dockerfile.kali` (Kali rolling): o catálogo completo, incluindo **Metasploit, ZAP,
+  NetExec, BloodHound.py e unicornscan**, mais as ferramentas de **inventário**
+  (`tcpdump`, `netcat`, `aircrack-ng`, `kismet`, `wifite`, `bettercap`, `arpwatch`, SET).
+  Usa Python 3.13 no venv do backend. As de inventário continuam **não executáveis em
+  jobs** (RF/SET/MITM são manuais e exigem hardware/interface próprios).
+
+Sem tools, `ETHOSCAN_ALLOW_MOCK=true` permite testar o fluxo (findings marcados como mock).
+Se o Nuclei não tiver templates: `docker compose exec worker nuclei -update-templates`.
+O caminho oficial para scans reais continua a ser um host/VM Kali
+([docs/kali-setup.md](docs/kali-setup.md)).
 
 O compose base é **lab local** (`ETHOSCAN_MODE=local`) e o mock é **opt-in**
 (`ETHOSCAN_ALLOW_MOCK=false` por default). Para expor fora do host, use o override
@@ -177,7 +204,7 @@ Exposição de cada serviço (configurável no `.env`):
 | `postgres` | `127.0.0.1:${POSTGRES_PORT:-15432}` | loopback + porta alternativa para não colidir com outros stacks |
 
 - **Desktop em outra máquina:** no login, troque "URL base da API" para `http://<IP-do-host>:8000`
-  (ex.: `http://192.168.0.7:8000`) e entre com o utilizador local (`mauro` + senha) — não precisa da master key.
+  (ex.: `http://192.168.0.7:8000`) e entre com o utilizador local (`mauromantilha` + senha + 2FA) — não precisa da master key.
   O desktop fala com a API pelo processo principal (Node), então **CORS não se aplica**.
 - **UI web na rede:** `WEB_BIND=0.0.0.0` no `.env` + `docker compose build web`
   (os `NEXT_PUBLIC_*` são embutidos no bundle **no build**; se o navegador acessar por IP, ajuste
@@ -282,6 +309,12 @@ Ver [docs/kali-acceptance.md](docs/kali-acceptance.md).
 - Opcional (desktop/lab): `ETHOSCAN_LOCAL_USERNAME` + `ETHOSCAN_LOCAL_PASSWORD_HASH` (bcrypt).
   Login: `POST /api/auth/login` → token de sessão para usar como `X-API-Key` (não devolve a master key).
   Gerar hash: `python3 -c "import bcrypt; print(bcrypt.hashpw(b'YOUR_PASSWORD', bcrypt.gensalt()).decode())"`
+- **2FA opcional (TOTP/authenticator app):** `ETHOSCAN_LOCAL_TOTP_SECRET` (base32) +
+  `ETHOSCAN_LOCAL_TOTP_ISSUER`; o login passa a exigir `totp_code` de 6 dígitos.
+  Gerar segredo: `python3 -c "import pyotp; print(pyotp.random_base32())"`.
+  O `/health` expõe `local_login_2fa` e o desktop mostra o campo **Código 2FA**.
+  Sem códigos de recuperação: para repor, remova/altere `ETHOSCAN_LOCAL_TOTP_SECRET`
+  no `.env` e reinicie a API.
 - CORS apenas para `ETHOSCAN_CORS_ORIGINS` (default `http://localhost:3000`) — **não** usa `*`
 - Bind diário: `127.0.0.1`
 - Mock default **desligado** (`ETHOSCAN_ALLOW_MOCK=false`); ative apenas em dev/lab.
@@ -310,11 +343,12 @@ Só é aceitável em lab isolado. Sem key, service keys ou utilizador local e se
 
 **Smoke desktop (login local)**
 
-1. Defina `ETHOSCAN_LOCAL_USERNAME=mauro` e `ETHOSCAN_LOCAL_PASSWORD_HASH` (hash bcrypt; ver `.env.example`)
-2. `ETHOSCAN_DISABLE_AUTH=false` (e opcionalmente uma `ETHOSCAN_API_KEY` para CLI)
-3. Suba Redis + API + worker
-4. `cd desktop && npm start` → entre com utilizador/palavra-passe
-5. Confirme pipeline tools, inventário Kali (`/api/lab/tools`) e fases F0–F6; crie um engagement com RoE
+1. Defina `ETHOSCAN_LOCAL_USERNAME` e `ETHOSCAN_LOCAL_PASSWORD_HASH` (hash bcrypt; ver `.env.example`)
+2. Opcional: `ETHOSCAN_LOCAL_TOTP_SECRET` (authenticator app) e `ETHOSCAN_LOCAL_TOTP_ISSUER`
+3. `ETHOSCAN_DISABLE_AUTH=false` (e opcionalmente uma `ETHOSCAN_API_KEY` para CLI)
+4. Suba Redis + API + worker
+5. `cd desktop && npm start` → entre com utilizador/palavra-passe (e código 2FA, se ativo)
+6. Confirme pipeline tools, inventário Kali (`/api/lab/tools`) e fases F0–F6; crie um engagement com RoE
 
 **Checklist — não publicar casualmente na LAN**
 

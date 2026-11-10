@@ -6,7 +6,7 @@ import re
 import shutil
 from pathlib import Path
 
-from app.adapters.base import AdapterResult, BaseAdapter, RawFinding
+from app.adapters.base import AdapterResult, BaseAdapter, RawFinding, artifact_name
 from app.core.targets import target_host
 from app.models import Severity
 
@@ -44,7 +44,7 @@ class HydraAdapter(BaseAdapter):
         pwds = job_dir / "hydra_pass.txt"
         users.write_text("\n".join(_USERS) + "\n")
         pwds.write_text("\n".join(_PASSWORDS) + "\n")
-        out_file = job_dir / "hydra.txt"
+        out_file = job_dir / artifact_name(self.name, target, "txt")
 
         # -t 4 threads, -f stop on first, -W 1 wait, service ssh only
         timeout = 120 if intensity == "standard" else 180
@@ -86,7 +86,7 @@ class HydraAdapter(BaseAdapter):
                 "Hydra requer intensidade standard+ (RoE explícito).",
             )
         content = f"[DATA] attacking ssh://{target}\n[ERROR] mock — no valid password found\n"
-        path = job_dir / "hydra.txt"
+        path = job_dir / artifact_name(self.name, target, "txt")
         path.write_text(content)
         return AdapterResult(
             tool=self.name,
@@ -98,7 +98,7 @@ class HydraAdapter(BaseAdapter):
         )
 
     def _skipped(self, target: str, job_dir: Path, reason: str) -> AdapterResult:
-        path = job_dir / "hydra.txt"
+        path = job_dir / artifact_name(self.name, target, "txt")
         path.write_text(reason + "\n")
         return AdapterResult(
             tool=self.name,
@@ -140,7 +140,13 @@ class HydraAdapter(BaseAdapter):
                         remediation="Rodar passwords fortes; desativar auth fraca.",
                     )
                 )
-        if not findings:
+        low_all = (content or "").lower()
+        connection_failed = (
+            "could not connect" in low_all
+            or "timeout connecting" in low_all
+            or "failed to connect" in low_all
+        )
+        if not findings and not connection_failed and "attacking" in low_all:
             findings.append(
                 RawFinding(
                     title="Hydra concluído (sem credenciais)",

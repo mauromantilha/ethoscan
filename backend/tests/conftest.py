@@ -2,10 +2,15 @@ import os
 
 import pytest
 
-# Auth explícitamente desligada para smoke local/CI
+# Auth explicitamente desligada para smoke local/CI. Limpa credenciais do .env
+# do developer para os testes não dependerem de configuração local.
 os.environ["ETHOSCAN_DISABLE_AUTH"] = "true"
 os.environ["ETHOSCAN_ALLOW_MOCK"] = "true"
 os.environ["ETHOSCAN_MODE"] = "local"
+os.environ["ETHOSCAN_API_KEY"] = ""
+os.environ["ETHOSCAN_LOCAL_USERNAME"] = ""
+os.environ["ETHOSCAN_LOCAL_PASSWORD_HASH"] = ""
+os.environ["ETHOSCAN_LOCAL_TOTP_SECRET"] = ""
 
 
 @pytest.fixture(autouse=True)

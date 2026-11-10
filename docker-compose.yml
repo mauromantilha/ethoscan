@@ -43,12 +43,14 @@ services:
   api:
     build:
       context: ./backend
-      dockerfile: Dockerfile
+      # Dockerfile.tools inclui as tools de pentest (ver .env.example).
+      dockerfile: ${ETHOSCAN_DOCKERFILE:-Dockerfile}
     restart: unless-stopped
     env_file:
-      # ETHOSCAN_API_KEY, ETHOSCAN_LOCAL_* (hash bcrypt), logs... vêm daqui, sem
-      # interpolação do compose (essencial para hash bcrypt, que contém "$")
-      - .env
+      # ETHOSCAN_API_KEY, ETHOSCAN_LOCAL_* (hash bcrypt), logs... vêm daqui.
+      # format: raw impede a interpolação de "$" (essencial para o hash bcrypt).
+      - path: .env
+        format: raw
     environment:
       DATABASE_URL: postgresql+psycopg://ethoscan:ethoscan@postgres:5432/ethoscan
       REDIS_URL: redis://redis:6379/0
@@ -96,7 +98,7 @@ services:
   worker:
     build:
       context: ./backend
-      dockerfile: Dockerfile
+      dockerfile: ${ETHOSCAN_DOCKERFILE:-Dockerfile}
     restart: unless-stopped
     # Scanners raw (nmap/masscan) precisam de root + NET_RAW/NET_ADMIN.
     user: "0:0"
@@ -109,7 +111,8 @@ services:
       - NET_ADMIN
       - DAC_OVERRIDE
     env_file:
-      - .env
+      - path: .env
+        format: raw
     environment:
       DATABASE_URL: postgresql+psycopg://ethoscan:ethoscan@postgres:5432/ethoscan
       REDIS_URL: redis://redis:6379/0

@@ -84,12 +84,53 @@ jobs:
             apt-get install -y desktop-file-utils /dist/ethoscan_*_amd64.deb
             dpkg -s ethoscan | grep -E "^(Package|Version|Depends):"
             test -x /usr/bin/ethoscan
+            test "$(stat -c '%a' /opt/Ethoscan/chrome-sandbox)" = "4755"
+            test "$(stat -c '%U' /opt/Ethoscan/chrome-sandbox)" = "root"
             desktop-file-validate /usr/share/applications/ethoscan.desktop
           '
 
+  ubuntu-install:
+    name: Ubuntu 24.04 launch test
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ethoscan-desktop-linux
+          path: dist-artifacts
+
+      - name: Install package
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb ./dist-artifacts/ethoscan_*_amd64.deb
+
+      - name: Verify sandbox helper
+        run: |
+          test "$(stat -c '%a' /opt/Ethoscan/chrome-sandbox)" = "4755"
+          test "$(stat -c '%U' /opt/Ethoscan/chrome-sandbox)" = "root"
+
+      - name: Launch app (smoke)
+        env:
+          ETHOSCAN_DISABLE_UPDATER: "1"
+        run: |
+          set +e
+          xvfb-run -a timeout 10 ethoscan > /tmp/ethoscan.log 2>&1
+          code=$?
+          set -e
+          cat /tmp/ethoscan.log
+          if grep -q "SUID sandbox helper binary" /tmp/ethoscan.log; then
+            echo "chrome-sandbox sem SUID" >&2
+            exit 1
+          fi
+          if [ "$code" -ne 124 ] && [ "$code" -ne 0 ]; then
+            echo "ethoscan terminou com código $code" >&2
+            exit 1
+          fi
+
   release:
     name: GitHub Release
-    needs: [build, debian-install]
+    needs: [build, debian-install, ubuntu-install]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts

@@ -1,0 +1,51 @@
+# Override OPCIONAL: container de laboratório com as tools de inventário
+# (tcpdump, netcat, aircrack-ng, kismet, wifite, bettercap, arpwatch, setoolkit)
+# rodando na REDE REAL do host — ao contrário do api/worker, que só enxergam
+# a bridge interna do Docker.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.lab.yml up -d lab
+#   docker compose -f docker-compose.yml -f docker-compose.lab.yml exec lab <tool>
+#
+# Exemplos:
+#   ... exec lab tcpdump -i <sua-interface-LAN> -w /artifacts/captura.pcap -c 100
+#   ... exec lab arpwatch -i <sua-interface-LAN>
+#   ... exec lab nc -vz alvo 443
+#   ... exec lab aircrack-ng /artifacts/capture.cap -w /usr/share/wordlists/rockyou.txt
+#   ... exec -it lab setoolkit        # SÓ com autorização por escrito
+#
+# Avisos:
+#   - network_mode: host dá visão/ação sobre a LAN física: use apenas em
+#     ambiente que você controla e com alvos dentro do RoE/escopo.
+#   - Capturas e arquivos salvos em /artifacts aparecem no host em ./artifacts.
+#   - kismet/wifite/aircrack (captura) exigem adaptador Wi-Fi com monitor mode;
+#     se o rádio aparecer como interface no host (ex.: wlan0), descomente
+#     `privileged: true` — o container compartilha o netns do host e o rádio
+#     fica visível. Sem rádio, só o cracking offline (aircrack-ng) funciona.
+services:
+  lab:
+    build:
+      context: ./backend
+      # Dockerfile.kali = catálogo completo de inventário (ver backend/Dockerfile.kali)
+      dockerfile: ${ETHOSCAN_LAB_DOCKERFILE:-Dockerfile.kali}
+    image: ethoscan-lab:local
+    restart: "no"
+    user: "0:0"
+    # Compartilha as interfaces REAIS do host (LAN, e o rádio se existir).
+    network_mode: host
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    # Descomente apenas para trabalho com rádio Wi-Fi (monitor mode):
+    # privileged: true
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./artifacts:/artifacts
+    working_dir: /artifacts
+    # Fica ocioso esperando `docker compose exec` — não sobe junto no `up -d` padrão.
+    command: ["sleep", "infinity"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

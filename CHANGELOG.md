@@ -1,5 +1,93 @@
 # Changelog
 
+## [0.4.0] — 2026-11-10
+
+Login local com 2FA (TOTP/authenticator app) e correções de instalação do desktop.
+
+### Autenticação
+
+- 2FA TOTP opcional no login local: `ETHOSCAN_LOCAL_TOTP_SECRET` (base32) +
+  `ETHOSCAN_LOCAL_TOTP_ISSUER`; `POST /api/auth/login` aceita `totp_code`.
+- `/health` expõe `local_login_2fa`; o desktop mostra o campo **Código 2FA** quando ativo.
+- Segredo TOTP inválido impede a API de subir (fail-fast); verificação com janela de ±30s
+  para tolerar desvio de relógio.
+- Dependência `pyotp==2.9.0`.
+
+### Relatórios / cobertura
+
+- F0 regista a resolução DNS de cada alvo em `tool_runs._coverage`; o relatório passa a
+  mostrar **Cobertura / limitações** quando o alvo não resolve ou uma tool falha.
+- WhatWeb, sslscan e nmap deixam de criar findings genéricos quando não há output/ligação;
+  passam a falha de tool com o motivo. Gobuster guarda o `stderr` no artefacto.
+- `tool_runs.command` mostra até 16 argumentos (inclui o alvo; antes cortava em 8).
+- Tool errors (`category=tool_error`) ficam separados dos achados de segurança no relatório.
+- Cobertura deduplica tool_error + tool_run do mesmo tool/alvo e avisa quando
+  Cloudflare/WAF é detetado (ferramentas HTTP veem challenge/edge).
+
+### Correções de adapters (multi-target)
+
+- SQLMap: não marca `high` por causa da frase "no dynamic nor injectable" no output;
+  só confirma injeção com um injection point/parameter positivo. URL sem query string é
+  omitida com aviso de cobertura.
+- Nikto: artefacto por alvo (evita contaminação entre alvos) e parser ignora metadados
+  (`Target Port`, etc.), baixa observações Cloudflare/uncommon headers para `info` e
+  classifica headers ausentes/XSS de forma mais conservadora.
+- NetExec sem output e Hydra sem ligação deixam de gerar "concluído" falso; viram falha.
+- SSLScan com certificado ilegível/protocolos indisponíveis deixa de gerar "TLS concluído".
+- Artefactos por alvo em nmap, whatweb, gobuster, nuclei, nikto, sqlmap, hydra, netexec,
+  zap e metasploit (evita overwrite no último alvo).
+- Nuclei: timeout `standard` 420s → 600s (atrás de WAF/CDN o scan legítimo era cortado
+  no 2º alvo) e `aggressive` 600s → 900s.
+- Suíte: **140 passed** em Python 3.12 e 3.13.
+
+### Docker
+
+- `backend/Dockerfile.tools` + `ETHOSCAN_DOCKERFILE=Dockerfile.tools`: inclui no container
+  nmap, whatweb, gobuster, sslscan, nuclei, nikto, masscan, sqlmap, hydra, john e a wordlist
+  do Gobuster. O default `Dockerfile` continua slim (tools vêm do host Kali).
+- `backend/Dockerfile.kali` + `ETHOSCAN_DOCKERFILE=Dockerfile.kali`: Kali rolling com o
+  catálogo completo (Metasploit, ZAP, NetExec, BloodHound.py, unicornscan), ferramentas de
+  inventário (tcpdump, netcat, aircrack-ng, kismet, wifite, bettercap, arpwatch, SET) e venv
+  Python 3.13 para o backend. Imagem grande e build demorado; inventário continua fora dos jobs.
+- **Fix EPERM no exec de binários com file capabilities** (ex.: `/usr/lib/nmap/nmap` no Kali
+  pede `cap_net_bind_service`, fora do bounding set do worker → `exit 126`): os Dockerfiles
+  passam a remover file capabilities da imagem (o worker é root com `NET_RAW`/`NET_ADMIN`).
+- `env_file` com `format: raw` no compose preserva o hash bcrypt (o `$` não é interpolado).
+
+### Lab de inventário (rede real do host)
+
+- `docker-compose.lab.yml` (override opcional): serviço `lab` com a imagem Kali em
+  `network_mode: host` — tcpdump, arpwatch, netcat, bettercap, aircrack-ng e setoolkit
+  enxergam a LAN física (antes confinados à bridge do compose). Não sobe no `up -d` normal.
+- `scripts/lab-tools.sh`: atalhos `up`/`down`/`ps`/`shell`/`run` + 23 tools com atalho
+  direto; detecta sudo automaticamente; capturas persistem em `./artifacts`.
+- Wi-Fi (kismet/wifite/airodump) continua exigindo host/VM Kali com rádio monitor mode
+  (descomente `privileged: true` no override se o rádio aparecer como `wlan0` no host).
+
+### Desktop / empacotamento
+
+- Inclui as correções da 0.3.1: `chrome-sandbox` 4755 no `.deb` (Ubuntu 23.10+/26.04),
+  wrapper `--no-sandbox` no AppImage e updater `.deb` via `apt`.
+- Instalações existentes: `sudo chmod 4755 /opt/Ethoscan/chrome-sandbox` (ou reinstalar o `.deb`).
+
+## [0.3.1] — 2026-11-10
+
+Correção de instalação/arranque do desktop em Ubuntu 23.10+ (AppArmor).
+
+### Desktop / empacotamento
+
+- `.deb`: o `postinst` passa a marcar `/opt/Ethoscan/chrome-sandbox` como `root:root 4755`
+  (SUID). O template do electron-builder deixava 0755 quando `unshare --user true` passava;
+  em Ubuntu 23.10+/26.04 com `kernel.apparmor_restrict_unprivileged_userns=1` esse teste
+  passa, mas o Chromium não consegue criar o user namespace com UID map e aborta com
+  *"The SUID sandbox helper binary was found, but is not configured correctly"*.
+- Instalações existentes: `sudo chmod 4755 /opt/Ethoscan/chrome-sandbox` (ou reinstalar o `.deb`).
+- AppImage: wrapper adiciona `--no-sandbox` apenas quando `$APPIMAGE` está definido (o
+  AppImage não consegue usar SUID); documentados `libfuse2`/`libfuse2t64`.
+- Updater: no `.deb` a app verifica a versão mas não tenta instalar sem root; mostra o
+  comando `sudo apt update && sudo apt install --only-upgrade ethoscan`.
+- CI: valida o modo 4755 do `chrome-sandbox` após instalar o `.deb`.
+
 ## [0.3.0] — 2026-11-09
 
 Revisão de segurança, confiabilidade, UI e empacotamento Debian.

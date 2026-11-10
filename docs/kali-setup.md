@@ -2,6 +2,17 @@
 
 Checklist para um host **Kali Linux** stock com packages instalados, de forma a que `/health` e `cli.py health` mostrem `available=true` para as cinco tools.
 
+> **Docker sem Kali:** a imagem padrão do compose é `python:3.12-slim` e não traz
+> scanners. Para incluir o pipeline clássico no container, defina
+> `ETHOSCAN_DOCKERFILE=Dockerfile.tools` no `.env` e rode
+> `docker compose up -d --build api worker`. Essa variante inclui nmap, whatweb,
+> gobuster, sslscan, nuclei, nikto, masscan, sqlmap, hydra e john.
+>
+> Para o catálogo completo no container, use `ETHOSCAN_DOCKERFILE=Dockerfile.kali`
+> (Kali rolling com Metasploit, ZAP, NetExec, BloodHound.py e unicornscan; imagem
+> grande e build demorado). Se o Nuclei não tiver templates:
+> `docker compose exec worker nuclei -update-templates`.
+
 ## Binários mínimos
 
 | Tool | Binário | Pacote Kali (exemplo) | Notas |
@@ -34,7 +45,10 @@ Checklist para um host **Kali Linux** stock com packages instalados, de forma a 
 
 `tcpdump`, `netcat`, `aircrack-ng`, `kismet`, `wifite`, `bettercap`, `arpwatch`, `setoolkit` —
 aparecem no catálogo com badge **inventário** (ética/RF/utils). Ethoscan **não** automatiza
-ataques RF nem campanhas SET.
+ataques RF nem campanhas SET. A imagem `Dockerfile.kali` instala estas ferramentas para
+inventário/manual; continuam fora dos jobs. Para as usar precisa de interface de rede/Wi-Fi
+e, no caso de RF, de um host/VM Kali com o adaptador correto — o container Docker não vê
+o Wi-Fi do host por omissão.
 
 ```bash
 # Opcionais (exemplos)

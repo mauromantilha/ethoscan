@@ -3,7 +3,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from app.adapters.base import AdapterResult, BaseAdapter, RawFinding
+from app.adapters.base import AdapterResult, BaseAdapter, RawFinding, artifact_name
 from app.core.targets import target_host
 from app.models import Severity
 
@@ -29,8 +29,8 @@ class MetasploitAdapter(BaseAdapter):
             ports, threads, timeout = "1-1024", "8", 240
         else:
             ports, threads, timeout = "1-1024", "8", 300
-        rc_path = job_dir / "msf_aux_scanner.rc"
-        out_path = job_dir / "msf_aux.txt"
+        rc_path = job_dir / artifact_name(self.name, target, "rc")
+        out_path = job_dir / artifact_name(self.name, target, "txt")
         rc = "\n".join(
             [
                 f"use {_SAFE_AUX_MODULE}",
@@ -56,7 +56,7 @@ class MetasploitAdapter(BaseAdapter):
         return AdapterResult(
             tool=self.name,
             mocked=False,
-            command=["msfconsole", "-q", "-n", "-r", "msf_aux_scanner.rc"],
+            command=["msfconsole", "-q", "-n", "-r", rc_path.name],
             stdout=stdout,
             stderr=stderr,
             findings=findings,
@@ -70,7 +70,7 @@ class MetasploitAdapter(BaseAdapter):
             f"[*] {host}:443 - TCP OPEN (mock aux/scanner)\n"
             f"[*] Scanned 1 of 1 hosts (auxiliary/scanner/portscan/tcp)\n"
         )
-        path = job_dir / "msf_aux.txt"
+        path = job_dir / artifact_name(self.name, target, "txt")
         path.write_text(stdout)
         return AdapterResult(
             tool=self.name,

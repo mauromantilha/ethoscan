@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from app.adapters.base import AdapterResult, BaseAdapter, RawFinding
+from app.adapters.base import AdapterResult, BaseAdapter, RawFinding, artifact_name
 from app.models import Severity
 
 
@@ -25,8 +25,28 @@ class NmapAdapter(BaseAdapter):
 
         cmd_text = ["nmap", *args, target]
         stdout, stderr, _ = self._exec(cmd_text, timeout=timeout)
+        out_file = job_dir / artifact_name(self.name, target, "txt")
+        err_file = job_dir / artifact_name(self.name, target, "stderr.txt")
+        out_file.write_text(stdout)
+        if stderr.strip():
+            err_file.write_text(stderr)
+        no_hosts = bool(re.search(r"0 IP addresses \(0 hosts up\)", stdout))
+        resolve_failed = "failed to resolve" in stderr.lower()
+        if no_hosts or resolve_failed:
+            return AdapterResult(
+                tool=self.name,
+                mocked=False,
+                command=cmd_text,
+                stdout=stdout,
+                stderr=stderr,
+                error=(
+                    "nmap não escaneou nenhum host "
+                    f"(DNS não resolveu ou host down): {target}"
+                ),
+                findings=[],
+                artifact_path=str(out_file),
+            )
         findings = self._parse_text(stdout, target)
-        (job_dir / "nmap.txt").write_text(stdout)
         return AdapterResult(
             tool=self.name,
             mocked=False,
@@ -34,7 +54,7 @@ class NmapAdapter(BaseAdapter):
             stdout=stdout,
             stderr=stderr,
             findings=findings,
-            artifact_path=str(job_dir / "nmap.txt"),
+            artifact_path=str(out_file),
         )
 
     def _run_mock(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
@@ -45,7 +65,7 @@ class NmapAdapter(BaseAdapter):
             "80/tcp   open  http    nginx 1.24\n"
             "443/tcp  open  https   nginx 1.24\n"
         )
-        path = job_dir / "nmap.txt"
+        path = job_dir / artifact_name(self.name, target, "txt")
         path.write_text(stdout)
         findings = [
             RawFinding(

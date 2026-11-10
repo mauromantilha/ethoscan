@@ -32,13 +32,20 @@ def login(
     check_login_rate_limit(ip)
     username = payload.username.strip()
     try:
-        token, expires_at = authenticate_local_user(payload.username, payload.password)
+        token, expires_at = authenticate_local_user(
+            payload.username, payload.password, payload.totp_code
+        )
     except HTTPException as exc:
         audit(
             db,
             None,
             "auth_login_failed",
-            {"username": username[:128], "ip": ip, "status": exc.status_code},
+            {
+                "username": username[:128],
+                "ip": ip,
+                "status": exc.status_code,
+                "totp_present": bool(payload.totp_code),
+            },
             actor="anonymous",
             client_ip=ip,
         )

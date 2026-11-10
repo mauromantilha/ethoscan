@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.adapters.base import AdapterResult, BaseAdapter, RawFinding
+from app.adapters.base import AdapterResult, BaseAdapter, RawFinding, artifact_name
 from app.core.targets import target_url
 from app.models import Severity
 
@@ -28,7 +28,7 @@ class GobusterAdapter(BaseAdapter):
         else:
             wordlist = str(common)
             threads, timeout = "30", 300
-        out_file = job_dir / "gobuster.txt"
+        out_file = job_dir / artifact_name(self.name, target, "txt")
         cmd = [
             "gobuster",
             "dir",
@@ -46,6 +46,10 @@ class GobusterAdapter(BaseAdapter):
         ]
         stdout, stderr, _ = self._exec(cmd, timeout=timeout)
         content = out_file.read_text() if out_file.exists() else stdout
+        if not content.strip() and stderr.strip():
+            # Preserva o motivo real (DNS, TLS, wordlist) no artefacto.
+            out_file.write_text(f"# stderr:\n{stderr}")
+            content = out_file.read_text()
         findings = self._parse(content, target)
         return AdapterResult(
             tool=self.name,
@@ -63,7 +67,7 @@ class GobusterAdapter(BaseAdapter):
             f"http://{target}/login (Status: 200)\n"
             f"http://{target}/.git (Status: 403)\n"
         )
-        path = job_dir / "gobuster.txt"
+        path = job_dir / artifact_name(self.name, target, "txt")
         path.write_text(content)
         return AdapterResult(
             tool=self.name,

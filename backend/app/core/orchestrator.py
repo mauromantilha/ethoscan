@@ -15,6 +15,7 @@ from app.core.authz import assert_in_allowlist, assert_in_scope, assert_roe
 from app.core.callbacks import assert_safe_callback_url, encode_callback
 from app.core.correlator import correlate
 from app.core.reports import write_html_report, write_pdf_report
+from app.core.targets import target_resolution
 from app.models import AuditEvent, Engagement, Finding, Job, JobFinding, JobStatus, Severity
 from app.queue import clear_callback, clear_cancel, get_callback, is_cancel_requested
 from app.tool_catalog import (
@@ -500,7 +501,7 @@ def _record_tool_run(
             "mocked": bool(prev.get("mocked")) or result.mocked,
             "available": adapter.available(),
             "last_target": last_target,
-            "command": (result.command or [])[:8],
+            "command": (result.command or [])[:16],
             "source": tool_name,
             "ok": result.ok,
             "exit_code": result.exit_code,
@@ -566,6 +567,13 @@ def _run_f0_gate(
         )
 
     tool_runs = dict(job.tool_runs or {})
+    # Cobertura DNS: não falha o job (nuclei DNS ainda pode ser útil), mas
+    # explica no relatório porque nmap/whatweb/sslscan/gobuster não vão ligar.
+    dns_coverage = []
+    for target in engagement.scope_targets:
+        addresses, error = target_resolution(target)
+        dns_coverage.append({"target": target, "addresses": addresses, "error": error})
+    tool_runs["_coverage"] = {"dns": dns_coverage}
     for name in required:
         info = status.get(name, {})
         tool_runs[name] = {

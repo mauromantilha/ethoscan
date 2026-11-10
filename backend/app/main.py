@@ -1,6 +1,7 @@
 import logging
 from contextlib import asynccontextmanager
 
+import pyotp
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -26,6 +27,21 @@ def _validate_auth_settings(settings: Settings) -> None:
     Em local, auth desligada é permitida com aviso explícito (lab). Credenciais
     default/fracas são rejeitadas fora de local e avisadas em local.
     """
+    if settings.local_user_2fa_enabled:
+        if not settings.local_user_configured:
+            raise RuntimeError(
+                "ETHOSCAN_LOCAL_TOTP_SECRET definido sem utilizador local. Defina "
+                "ETHOSCAN_LOCAL_USERNAME e ETHOSCAN_LOCAL_PASSWORD_HASH."
+            )
+        try:
+            # .now() valida o base32 (o construtor do pyotp é preguiçoso).
+            pyotp.TOTP(settings.ethoscan_local_totp_secret.strip()).now()
+        except (ValueError, TypeError) as exc:
+            raise RuntimeError(
+                "ETHOSCAN_LOCAL_TOTP_SECRET inválido: use um segredo base32 "
+                "(ex.: python -c \"import pyotp; print(pyotp.random_base32())\")."
+            ) from exc
+
     if settings.ethoscan_mode != "local":
         if settings.ethoscan_disable_auth:
             raise RuntimeError(
@@ -82,8 +98,9 @@ async def lifespan(_: FastAPI):
     init_db()
     if settings.local_user_configured:
         logger.info(
-            "Login local ativo para utilizador '%s' (POST /api/auth/login).",
+            "Login local ativo para utilizador '%s'%s (POST /api/auth/login).",
             settings.ethoscan_local_username.strip(),
+            " com 2FA TOTP" if settings.local_user_2fa_enabled else "",
         )
     yield
 
@@ -91,7 +108,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title="Ethoscan",
     description="Orquestrador de pentest ético (Assess) — local-first; intensidade safe recomendada",
-    version="0.3.0",
+    version="0.4.0",
     lifespan=lifespan,
 )
 
@@ -127,6 +144,7 @@ def health() -> HealthOut:
         mock_allowed=settings.ethoscan_allow_mock,
         auth_enabled=settings.auth_enabled,
         local_login_available=settings.local_user_configured,
+        local_login_2fa=settings.local_user_2fa_enabled,
         redis_ok=redis_ok,
         worker_ok=worker_ok,
         worker_hint=worker_hint,

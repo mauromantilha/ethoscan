@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from app.adapters.base import AdapterResult, BaseAdapter, RawFinding
+from app.adapters.base import AdapterResult, BaseAdapter, RawFinding, artifact_name
 from app.core.targets import target_url
 from app.models import Severity
 
@@ -22,7 +22,7 @@ class NucleiAdapter(BaseAdapter):
     binary = "nuclei"
 
     def _run_real(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
-        out_file = job_dir / "nuclei.jsonl"
+        out_file = job_dir / artifact_name(self.name, target, "jsonl")
         url = target_url(target, "https")
         # Segurança não se faz escondendo high/critical: o modo safe controla
         # intrusividade por tags/rate-limit, não por severidade.
@@ -56,9 +56,11 @@ class NucleiAdapter(BaseAdapter):
             timeout = 300
         elif intensity == "standard":
             cmd.extend(["-rate-limit", "50", "-c", "25", "-timeout", "8", "-etags", "dos"])
-            timeout = 420
-        else:
+            # 600s: atrás de WAF/CDN cada request demora; 420s cortava scans
+            # legítimos no 2º alvo (cf. job #3).
             timeout = 600
+        else:
+            timeout = 900
         stdout, stderr, _ = self._exec(cmd, timeout=timeout)
         content = out_file.read_text() if out_file.exists() else stdout
         findings = self._parse_jsonl(content, target)
@@ -92,7 +94,7 @@ class NucleiAdapter(BaseAdapter):
                 "matched-at": f"https://{target}",
             },
         ]
-        path = job_dir / "nuclei.jsonl"
+        path = job_dir / artifact_name(self.name, target, "jsonl")
         path.write_text("\n".join(json.dumps(r) for r in rows))
         findings = self._parse_jsonl(path.read_text(), target)
         for f in findings:

@@ -9,7 +9,7 @@ Baixe `ethoscan_<versão>_amd64.deb` do GitHub Releases e instale com `apt` (nã
 `dpkg -i`, para que as dependências sejam resolvidas):
 
 ```bash
-sudo apt install ./ethoscan_0.3.0_amd64.deb
+sudo apt install ./ethoscan_0.4.0_amd64.deb
 ethoscan
 ```
 
@@ -18,10 +18,10 @@ Ou use o instalador que descarrega o último release e verifica o checksum:
 ```bash
 ./scripts/install-deb.sh
 # ou uma tag específica:
-./scripts/install-deb.sh v0.3.0
+./scripts/install-deb.sh v0.4.0
 ```
 
-Requisitos testados: **Debian 12+**, **Ubuntu 22.04/24.04** (amd64). O pacote declara
+Requisitos testados: **Debian 12+**, **Ubuntu 22.04/24.04/26.04** (amd64). O pacote declara
 dependências de GTK, NSS, X11, libsecret, GBM e ALSA.
 
 ## Atualização e remoção
@@ -34,8 +34,10 @@ sudo apt install ./ethoscan_<nova-versão>_amd64.deb
 sudo apt remove ethoscan
 ```
 
-O auto-update do `electron-updater` não atualiza `.deb`; use `apt` para atualizar.
-AppImage/Windows NSIS mantêm o updater.
+O auto-update do `electron-updater` não instala `.deb` sem root; a app verifica a versão e
+mostra o comando `sudo apt update && sudo apt install --only-upgrade ethoscan` (ou
+`sudo apt install ./ethoscan_<nova-versão>_amd64.deb`). AppImage/Windows NSIS mantêm o
+updater automático.
 
 ## Repositório APT (opcional)
 
@@ -83,8 +85,22 @@ adicionar a source.
 
 ## Troubleshooting
 
-- **Sandbox do Chromium:** o `postinst` do pacote configura `chrome-sandbox` (SUID quando
-  não há user namespaces). Em lab sem sandbox, use `ethoscan --no-sandbox` apenas para teste.
+- **App não abre / aborta com "The SUID sandbox helper binary was found, but is not
+  configured correctly":** o `chrome-sandbox` ficou sem SUID. Corrija com
+  `sudo chmod 4755 /opt/Ethoscan/chrome-sandbox` (ou reinstale o `.deb` 0.3.1+). Verifique
+  com `stat -c '%a %U' /opt/Ethoscan/chrome-sandbox` — deve mostrar `4755 root`.
+  Isto afeta Ubuntu 23.10+ (incluindo 24.04/26.04) com
+  `kernel.apparmor_restrict_unprivileged_userns=1`, onde o teste `unshare --user true`
+  do postinst antigo passava mas o Chromium continuava sem sandbox utilizável.
+- **AppImage não abre (`dlopen(): error loading libfuse.so.2`):** instale o FUSE 2:
+  `sudo apt install libfuse2` (Debian 12/Ubuntu 22.04) ou `sudo apt install libfuse2t64`
+  (Ubuntu 24.04+). Alternativa sem FUSE:
+  `APPIMAGE_EXTRACT_AND_RUN=1 ./Ethoscan-<versão>-x86_64.AppImage`.
+- **AppImage aborta com erro de sandbox:** o AppImage é montado sem SUID e, em Ubuntu
+  23.10+, o user namespace pode estar bloqueado pelo AppArmor. O AppImage 0.3.1+ já
+  deteta `$APPIMAGE` e arranca com `--no-sandbox`; em versões antigas use
+  `./Ethoscan-<versão>-x86_64.AppImage --no-sandbox`. Para manter o sandbox ativo,
+  prefira o `.deb` (chrome-sandbox SUID).
 - **Wayland:** se a janela não abrir, tente `--ozone-platform=x11` ou execute numa sessão X11.
 - **API offline:** o desktop abre, mas login/health falham até a API em
   `http://127.0.0.1:8000` estar a correr.

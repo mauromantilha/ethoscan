@@ -22,7 +22,7 @@
       <header class="hero">
         <div class="hero-top">
           <h1 class="brand">Ethoscan</h1>
-          <span class="version-label" id="appVersion">v0.3.0</span>
+          <span class="version-label" id="appVersion">v0.4.0</span>
           <button class="theme-toggle" id="btnTheme" type="button" aria-label="Alternar tema">
             Tema: sistema
           </button>
@@ -75,6 +75,18 @@
                 spellcheck="false"
               />
             </div>
+          </div>
+          <div class="field" id="totpField" hidden>
+            <label for="totpCode">Código 2FA (authenticator app)</label>
+            <input
+              id="totpCode"
+              type="text"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              maxlength="8"
+              placeholder="123456"
+              spellcheck="false"
+            />
           </div>
           <details class="advanced">
             <summary>Avançado · X-API-Key</summary>

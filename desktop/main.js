@@ -124,14 +124,14 @@ async function apiFetch(pathname, options = {}) {
   return data;
 }
 
-async function login({ apiBaseUrl, username, password }) {
+async function login({ apiBaseUrl, username, password, totpCode }) {
   const base = String(apiBaseUrl || DEFAULT_CONFIG.apiBaseUrl).replace(/\/$/, "");
   let res;
   try {
     res = await fetch(`${base}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, totp_code: totpCode || undefined }),
     });
   } catch (err) {
     throw new Error(
@@ -159,6 +159,20 @@ function sendUpdaterStatus(payload) {
     if (!win.isDestroyed()) {
       win.webContents.send("updater:status", payload);
     }
+  }
+}
+
+function linuxPackageType() {
+  if (process.platform !== "linux") return null;
+  // AppImage é montado a partir do squashfs; nunca deve ser tratado como .deb,
+  // mesmo que resources/package-type tenha sobrado de um build anterior.
+  if (process.env.APPIMAGE) return null;
+  try {
+    const identity = path.join(process.resourcesPath, "package-type");
+    if (!fs.existsSync(identity)) return null;
+    return fs.readFileSync(identity, "utf8").trim() || null;
+  } catch {
+    return null;
   }
 }
 
@@ -200,8 +214,15 @@ function setupAutoUpdater() {
     return;
   }
 
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
+  // .deb não consegue instalar o update sem root (sudo) a partir da GUI.
+  // Nesse caso só verificamos e indicamos `apt`; AppImage/NSIS mantêm o updater.
+  const packageType = linuxPackageType();
+  const isDeb = packageType === "deb";
+  const debHint =
+    "Atualize com: sudo apt update && sudo apt install --only-upgrade ethoscan";
+
+  autoUpdater.autoDownload = !isDeb;
+  autoUpdater.autoInstallOnAppQuit = !isDeb;
   // Releases públicos; sem code signing (lab/privado — SmartScreen pode avisar)
   autoUpdater.setFeedURL({
     provider: "github",
@@ -220,7 +241,9 @@ function setupAutoUpdater() {
   autoUpdater.on("update-available", (info) => {
     sendUpdaterStatus({
       state: "available",
-      message: `Atualização disponível: v${info.version}`,
+      message: isDeb
+        ? `Atualização disponível: v${info.version} — ${debHint}`
+        : `Atualização disponível: v${info.version}`,
       version: info.version,
     });
   });
@@ -279,6 +302,15 @@ function setupAutoUpdater() {
   });
 
   ipcMain.handle("updater:install", () => {
+    if (isDeb) {
+      const status = {
+        state: "available",
+        message: `Pacote .deb: ${debHint}`,
+        version: app.getVersion(),
+      };
+      sendUpdaterStatus(status);
+      return { ok: false, message: status.message };
+    }
     // isSilent=false, isForceRunAfter=true
     setImmediate(() => autoUpdater.quitAndInstall(false, true));
     return { ok: true };

@@ -6,6 +6,7 @@ tool_error como achado (sem derrubar o job), /api/audit e paginação.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
@@ -100,6 +101,9 @@ def test_tool_failure_becomes_finding_and_job_completes(client):
         # falha de uma tool não derruba o pipeline
         assert job.status == JobStatus.completed, job.error
         assert job.report_path
+        html = Path(job.report_path).read_text()
+        assert "Cobertura / limitações" in html
+        assert "whatweb" in html
         # tool_runs registra ok/exit_code do adapter
         assert job.tool_runs["whatweb"]["ok"] is False
         assert job.tool_runs["whatweb"]["exit_code"] == 2

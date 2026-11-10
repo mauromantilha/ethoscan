@@ -69,4 +69,11 @@ if [[ "${ETHOSCAN_DRY_RUN:-0}" == "1" ]]; then
 fi
 
 sudo apt install "$DEB_PATH"
+
+# 0.3.0 saiu com chrome-sandbox 0755 em Ubuntu 23.10+ (AppArmor). O postinst
+# 0.3.1+ já corrige, mas mantém o instalador seguro para releases antigos.
+if [[ -f /opt/Ethoscan/chrome-sandbox ]]; then
+  sudo chmod 4755 /opt/Ethoscan/chrome-sandbox || true
+fi
+
 echo "Ethoscan instalado. Abra com: ethoscan"

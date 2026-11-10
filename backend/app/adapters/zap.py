@@ -4,7 +4,7 @@ import re
 import shutil
 from pathlib import Path
 
-from app.adapters.base import AdapterResult, BaseAdapter, RawFinding
+from app.adapters.base import AdapterResult, BaseAdapter, RawFinding, artifact_name
 from app.core.targets import target_url
 from app.models import Severity
 
@@ -13,7 +13,7 @@ class ZapAdapter(BaseAdapter):
     """OWASP ZAP — alternativa headless ao Burp Community para relatório automatizado."""
 
     name = "zap"
-    binary = "zap.sh"
+    binary = "zaproxy"
 
     def available(self) -> bool:
         return shutil.which("zap.sh") is not None or shutil.which("zap") is not None or shutil.which(
@@ -29,7 +29,7 @@ class ZapAdapter(BaseAdapter):
 
     def _run_real(self, target: str, job_dir: Path, intensity: str) -> AdapterResult:
         url = target_url(target)
-        out_html = job_dir / "zap-report.html"
+        out_html = job_dir / artifact_name(self.name, target, "html")
         binary = self._binary()
         # Quick scan: spider + passive/active light — sem scripting de exploits.
         cmd = [
@@ -69,12 +69,12 @@ class ZapAdapter(BaseAdapter):
             f"<li>Content Security Policy (CSP) Header Not Set</li>"
             f"</body></html>"
         )
-        path = job_dir / "zap-report.html"
+        path = job_dir / artifact_name(self.name, target, "html")
         path.write_text(content)
         return AdapterResult(
             tool=self.name,
             mocked=True,
-            command=["zap.sh", "--mock", target],
+            command=["zaproxy", "--mock", target],
             stdout=content,
             findings=self._parse(content, target),
             artifact_path=str(path),

@@ -466,14 +466,16 @@ export default function HomePage() {
                   {j.error ? ` · erro: ${j.error}` : ""}
                 </div>
                 <div className="tool-run-row">
-                  {Object.entries(j.tool_runs || {}).map(([tool, info]) => (
-                    <span
-                      key={tool}
-                      className={`mode-badge ${info.mocked ? "mock" : "real"}`}
-                    >
-                      {tool}:{info.mocked ? "mock" : "real"}
-                    </span>
-                  ))}
+                  {Object.entries(j.tool_runs || {})
+                    .filter(([tool]) => !tool.startsWith("_"))
+                    .map(([tool, info]) => (
+                      <span
+                        key={tool}
+                        className={`mode-badge ${info.mocked ? "mock" : "real"}`}
+                      >
+                        {tool}:{info.mocked ? "mock" : "real"}
+                      </span>
+                    ))}
                 </div>
                 <div className="row" style={{ marginTop: "0.65rem" }}>
                   {(j.status === "pending" || j.status === "running") && (
