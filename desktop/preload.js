@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld("ethoscan", {
   listFindings: (filters) => ipcRenderer.invoke("api:listFindings", filters),
   analyzeJob: (jobId) => ipcRenderer.invoke("api:analyzeJob", jobId),
   assistantChat: (jobId, payload) => ipcRenderer.invoke("api:assistantChat", jobId, payload),
+  testLlm: () => ipcRenderer.invoke("api:testLlm"),
   downloadReport: (jobId) => ipcRenderer.invoke("api:downloadReport", jobId),
   downloadReportPdf: (jobId) => ipcRenderer.invoke("api:downloadReportPdf", jobId),
   openPath: (targetPath) => ipcRenderer.invoke("shell:openPath", targetPath),

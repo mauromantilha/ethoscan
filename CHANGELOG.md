@@ -23,9 +23,12 @@ Analista assistente LLM ("aikido"): triagem de findings, correlação e chat sob
 - Auditoria: `llm_analyze` / `llm_assistant` com modelo e contagens (pergunta truncada).
 - Desktop: aba **Assistente** — seletor de job, botão "Analisar achados" com triagem
   renderizada e chat com bolhas de conversa.
+- `POST /api/llm/test` + botão **Testar API** no desktop: ping ao provedor com modelo,
+  latência e resposta; falha do provedor volta no corpo (`ok: false` + detail).
 - `.env`/`.env.example` com menu de provedores OpenAI-compatíveis (OpenAI, Groq free
   tier, OpenRouter `:free`, Cloudflare Workers AI, Ollama local); docs/llm-assistant.md.
-- 11 testes novos (provedor mockado via httpx; nenhum teste fala com LLM real).
+- 14 testes novos (provedor mockado via httpx; nenhum teste fala com LLM real);
+  conftest limpa as vars ETHOSCAN_LLM_* para a suíte ser hermética.
 
 ## [0.4.0] — 2026-11-10
 

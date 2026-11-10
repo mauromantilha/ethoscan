@@ -204,6 +204,38 @@ def test_llm_enabled_flag_in_health(client, monkeypatch, tmp_path):
     assert body["llm_enabled"] is True
 
 
+def test_llm_test_endpoint_requires_configuration(client):
+    resp = client.post("/api/llm/test")
+    assert resp.status_code == 503
+
+
+def test_llm_test_endpoint_ok(client, monkeypatch, tmp_path):
+    _configure_llm(monkeypatch, tmp_path)
+    monkeypatch.setattr(llm_mod, "chat", lambda *a, **k: "pong")
+    resp = client.post("/api/llm/test")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["model"] == "test-model"
+    assert body["reply"] == "pong"
+    assert body["latency_ms"] >= 0
+
+
+def test_llm_test_endpoint_provider_error_reports_detail(client, monkeypatch, tmp_path):
+    _configure_llm(monkeypatch, tmp_path)
+
+    def boom(*a, **k):
+        raise llm_mod.LLMRequestError("HTTP 401: Unauthorized", status=401)
+
+    monkeypatch.setattr(llm_mod, "chat", boom)
+    resp = client.post("/api/llm/test")
+    # falha do provedor é reportada no corpo (ok=false), não como 502
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is False
+    assert "401" in body["detail"]
+
+
 def test_parse_json_object_tolerates_fences_and_noise():
     obj = llm_mod.parse_json_object('Aqui está:\n```json\n{"a": 1}\n```\nEspero ter ajudado.')
     assert obj == {"a": 1}

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -33,6 +34,7 @@ from app.schemas import (
     AssistantChatResponse,
     FindingTriageOut,
     JobAnalysisOut,
+    LLMTestOut,
 )
 
 logger = logging.getLogger("ethoscan")
@@ -73,6 +75,52 @@ def _require_llm() -> None:
             "Assistente LLM não configurado: defina ETHOSCAN_LLM_BASE_URL e "
             "ETHOSCAN_LLM_MODEL no .env da API (ex.: Ollama local).",
         )
+
+
+@router.post("/llm/test", response_model=LLMTestOut)
+def test_llm(request: Request, db: Session = Depends(get_db)) -> LLMTestOut:
+    """Ping ao provedor LLM: valida BASE_URL/KEY/MODEL e mede a latência."""
+    settings = get_settings()
+    if not settings.llm_enabled:
+        raise HTTPException(
+            503,
+            "Assistente LLM não configurado: defina ETHOSCAN_LLM_BASE_URL e "
+            "ETHOSCAN_LLM_MODEL no .env da API.",
+        )
+    started = time.perf_counter()
+    try:
+        reply = llm.chat(
+            [
+                {"role": "system", "content": "Responda exatamente com a palavra: pong"},
+                {"role": "user", "content": "ping"},
+            ],
+        )
+        latency_ms = int((time.perf_counter() - started) * 1000)
+    except LLMNotConfigured as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except LLMRequestError as exc:
+        logger.warning("Teste do provedor LLM falhou: %s", exc)
+        return LLMTestOut(
+            ok=False,
+            model=settings.ethoscan_llm_model.strip(),
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            detail=str(exc)[:500],
+        )
+    actor, client_ip = _actor_meta(request)
+    audit(
+        db,
+        None,
+        "llm_test",
+        {"model": settings.ethoscan_llm_model.strip(), "ok": True, "latency_ms": latency_ms},
+        actor=actor,
+        client_ip=client_ip,
+    )
+    return LLMTestOut(
+        ok=True,
+        model=settings.ethoscan_llm_model.strip(),
+        latency_ms=latency_ms,
+        reply=reply.strip()[:200],
+    )
 
 
 @router.post("/jobs/{job_id}/analyze", response_model=JobAnalysisOut)

@@ -11,6 +11,10 @@ os.environ["ETHOSCAN_API_KEY"] = ""
 os.environ["ETHOSCAN_LOCAL_USERNAME"] = ""
 os.environ["ETHOSCAN_LOCAL_PASSWORD_HASH"] = ""
 os.environ["ETHOSCAN_LOCAL_TOTP_SECRET"] = ""
+# LLM: testes não dependem de configuração do developer (.env com OpenAI etc.)
+os.environ["ETHOSCAN_LLM_BASE_URL"] = ""
+os.environ["ETHOSCAN_LLM_API_KEY"] = ""
+os.environ["ETHOSCAN_LLM_MODEL"] = ""
 
 
 @pytest.fixture(autouse=True)

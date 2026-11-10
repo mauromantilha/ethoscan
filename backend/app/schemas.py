@@ -284,6 +284,16 @@ class AssistantChatResponse(BaseModel):
     model: str
 
 
+class LLMTestOut(BaseModel):
+    """Resultado do ping ao provedor LLM configurado."""
+
+    ok: bool
+    model: str = ""
+    latency_ms: int = 0
+    reply: str = ""
+    detail: str = ""
+
+
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=128)
     password: str = Field(min_length=1, max_length=256)

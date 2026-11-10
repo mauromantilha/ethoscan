@@ -60,6 +60,9 @@ curl -s http://127.0.0.1:8000/health | python3 -m json.tool | grep llm
 ### API
 
 ```bash
+# ping ao provedor (valida BASE_URL/KEY/MODEL, mede latência)
+curl -X POST -H "X-API-Key: $TOKEN" http://127.0.0.1:8000/api/llm/test
+
 # triagem + correlação + próximos passos
 curl -X POST -H "X-API-Key: $TOKEN" http://127.0.0.1:8000/api/jobs/3/analyze
 
@@ -73,7 +76,9 @@ curl -X POST -H "X-API-Key: $TOKEN" http://127.0.0.1:8000/api/jobs/3/assistant \
 
 Aba **Assistente**: escolha o job → **Analisar achados** (triagem renderizada) ou
 converse no chat. Modelos com raciocínio fraco podem gerar triagens vagas —
-modelos ≥ 8B são recomendados.
+modelos ≥ 8B são recomendados. O botão **Testar API** faz um ping ao provedor
+(`POST /api/llm/test`) e mostra modelo, latência e resposta — falhas de
+autenticação/rede aparecem com o detalhe devolvido pelo provedor.
 
 ## Limitações
 

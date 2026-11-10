@@ -69,6 +69,7 @@ const el = {
   btnOpenReportPdf: document.getElementById("btnOpenReportPdf"),
   assistantMeta: document.getElementById("assistantMeta"),
   assistantJobSelect: document.getElementById("assistantJobSelect"),
+  btnTestLlm: document.getElementById("btnTestLlm"),
   btnAnalyzeJob: document.getElementById("btnAnalyzeJob"),
   btnClearAssistant: document.getElementById("btnClearAssistant"),
   assistantAnalysis: document.getElementById("assistantAnalysis"),
@@ -530,6 +531,38 @@ function updateAssistantAvailability(health) {
   const hasJob = Boolean(el.assistantJobSelect && el.assistantJobSelect.value);
   if (el.btnAnalyzeJob) el.btnAnalyzeJob.disabled = !llmConfigured || !hasJob;
   if (el.btnAssistantSend) el.btnAssistantSend.disabled = !llmConfigured || !hasJob;
+}
+
+async function runLlmTest() {
+  if (el.btnTestLlm) {
+    el.btnTestLlm.disabled = true;
+    el.btnTestLlm.textContent = "Testando…";
+  }
+  appendAssistantMessage("user", "Testar API do assistente");
+  try {
+    const result = await window.ethoscan.testLlm();
+    if (result.ok) {
+      appendAssistantMessage(
+        "assistant",
+        `API ok ✓\nModelo: ${result.model}\nLatência: ${result.latency_ms} ms\nResposta: ${result.reply || "(vazia)"}`,
+      );
+      llmConfigured = true;
+    } else {
+      appendAssistantMessage(
+        "assistant",
+        `API falhou ✗\nModelo: ${result.model || "?"}\n${result.detail || "sem detalhes"}`,
+      );
+    }
+  } catch (err) {
+    appendAssistantMessage("assistant", `API indisponível: ${err.message || err}`);
+    llmConfigured = false;
+  } finally {
+    if (el.btnTestLlm) {
+      el.btnTestLlm.disabled = false;
+      el.btnTestLlm.textContent = "Testar API";
+    }
+    updateAssistantAvailability({ llm_enabled: llmConfigured });
+  }
 }
 
 function renderAssistantAnalysis(analysis) {
@@ -1051,6 +1084,10 @@ el.assistantJobSelect?.addEventListener("change", () => {
   if (el.assistantChatLog) el.assistantChatLog.innerHTML = '<p class="meta">Pergunte ao assistente sobre o job selecionado.</p>';
   if (el.assistantAnalysis) el.assistantAnalysis.hidden = true;
   updateAssistantAvailability({ llm_enabled: llmConfigured });
+});
+
+el.btnTestLlm?.addEventListener("click", () => {
+  runLlmTest();
 });
 
 el.btnAnalyzeJob?.addEventListener("click", () => {
