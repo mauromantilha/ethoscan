@@ -32,7 +32,6 @@ if ! docker info >/dev/null 2>&1; then
   COMPOSE=(sudo "${COMPOSE[@]}")
 fi
 
-KNOWN_CMDS=(up down ps shell run)
 TOOL_ALIASES=(tcpdump nc netcat arpwatch bettercap aircrack-ng airodump-ng
   airmon-ng kismet wifite setoolkit nmap whatweb gobuster sslscan nuclei
   nikto masscan sqlmap hydra john nxc msfconsole)
