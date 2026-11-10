@@ -23,6 +23,8 @@ Analista assistente LLM ("aikido"): triagem de findings, correlação e chat sob
 - Auditoria: `llm_analyze` / `llm_assistant` com modelo e contagens (pergunta truncada).
 - Desktop: aba **Assistente** — seletor de job, botão "Analisar achados" com triagem
   renderizada e chat com bolhas de conversa.
+- `.env`/`.env.example` com menu de provedores OpenAI-compatíveis (OpenAI, Groq free
+  tier, OpenRouter `:free`, Cloudflare Workers AI, Ollama local); docs/llm-assistant.md.
 - 11 testes novos (provedor mockado via httpx; nenhum teste fala com LLM real).
 
 ## [0.4.0] — 2026-11-10
