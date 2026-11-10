@@ -2,17 +2,50 @@
 
 Orquestrador local de **pentest ético** (CLI + API + dashboard + desktop + worker).
 
-> Versão **0.4.0** — mudanças/migração em [CHANGELOG.md](CHANGELOG.md); publicação em
+> Versão **0.5.0** — mudanças/migração em [CHANGELOG.md](CHANGELOG.md); publicação em
 > [docs/release-checklist.md](docs/release-checklist.md).
 
 - Pipeline **F0–F6** (gate RoE/escopo/tools → recon → enum → web → vuln → correlação → relatório)
 - Escopo allowlist + RoE obrigatório + audit log
 - Catálogo de tools pré-configuradas (selecionáveis); adapters: Nmap, WhatWeb, Gobuster, sslscan, Nuclei, Nikto, Masscan, ZAP; Metasploit **só aux/scanner**; Burp **só lançamento GUI**
+- **Assistente LLM** (aikido): tria findings (real/falso positivo), correlaciona achados e
+  conversa sobre o job — advisory-only, qualquer API OpenAI-compatível ([docs/llm-assistant.md](docs/llm-assistant.md))
 - Relatório HTML + **PDF** imprimível (`GET /api/jobs/{id}/report.pdf`)
 - Worker dedicado via **Redis** (a API não bloqueia em scans longos)
 - Shell **Electron** opcional (`desktop/`) para Kali/Windows — client fino da API
 - Intensidade padrão recomendada: **`safe`**
-- Auth mínima por API key + CORS restrito à UI web
+- Auth por API key + login local com 2FA TOTP + CORS restrito à UI web
+
+## Instalação do zero (5 passos)
+
+```bash
+# 1. Clone
+git clone https://github.com/mauromantilha/ethoscan && cd ethoscan
+
+# 2. Configure (credenciais, imagem Docker e LLM)
+cp .env.example .env && nano .env
+
+# 3. Docker + Docker Compose são OBRIGATÓRIOS: os scanners rodam em container.
+#    No .env, escolha a imagem com as ferramentas — SEM isso, nenhum scan real roda:
+#      ETHOSCAN_DOCKERFILE=Dockerfile.kali   <- RECOMENDADO: catálogo completo
+#         (Metasploit, ZAP, NetExec, Nuclei...; imagem grande, build 10–30 min)
+#      ETHOSCAN_DOCKERFILE=Dockerfile.tools  <- pipeline clássico, mais leve
+sudo docker compose up -d --build api worker
+
+# 4. Assistente LLM: inclua no .env um endpoint OpenAI-compatível
+#      ETHOSCAN_LLM_BASE_URL=https://api.mistral.ai/v1   (ou OpenAI/Groq/OpenRouter/Ollama)
+#      ETHOSCAN_LLM_MODEL=mistral-small-latest
+#      ETHOSCAN_LLM_API_KEY=<sua key>
+#    Sem isso a aba Assistente fica inativa (o resto funciona).
+
+# 5. Verifique a instalação (diz exatamente o que falta, se faltar algo):
+./scripts/check-install.sh
+```
+
+Desktop Electron: baixe o `.deb` em
+[Releases](https://github.com/mauromantilha/ethoscan/releases) e instale com
+`sudo apt install ./ethoscan_<versão>_amd64.deb`. A API precisa estar no ar
+(`docker compose up -d`) antes de abrir o app.
 
 > Perdido no fluxo de chamadas (API → Redis → worker → orchestrator → adapters)? Ver
 > [docs/architecture.md](docs/architecture.md) — diagramas de sequência e mapa de arquivos por camada.

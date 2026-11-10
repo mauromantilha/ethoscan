@@ -27,6 +27,11 @@ Analista assistente LLM ("aikido"): triagem de findings, correlação e chat sob
   latência e resposta; falha do provedor volta no corpo (`ok: false` + detail).
 - `.env`/`.env.example` com menu de provedores OpenAI-compatíveis (OpenAI, Groq free
   tier, OpenRouter `:free`, Cloudflare Workers AI, Ollama local); docs/llm-assistant.md.
+- **Instalação limpa**: `scripts/check-install.sh` (doutor de instalação) verifica Docker,
+  `.env`, imagem com scanners, stack, LLM e desktop — e diz exatamente o que falta
+  instalar/configurar; README ganha quickstart "Instalação do zero (5 passos)".
+- Desktop: health mostra `llm: on/off`; sem nenhum scanner no container, o painel
+  orienta a construir `Dockerfile.kali` (primordial para scans reais).
 - 14 testes novos (provedor mockado via httpx; nenhum teste fala com LLM real);
   conftest limpa as vars ETHOSCAN_LLM_* para a suíte ser hermética.
 

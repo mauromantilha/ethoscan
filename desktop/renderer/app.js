@@ -239,12 +239,27 @@ function renderHealth(health) {
     `estado: ${health.status}`,
     `redis: ${health.redis_ok ? "ok" : "down"}`,
     `auth: ${health.auth_enabled ? "on" : "off"}`,
+    `llm: ${health.llm_enabled ? "on" : "off"}`,
     `mock: ${health.mock_allowed ? "permitido" : "off"}`,
   ].join(" · ");
 
   const tools = Object.entries(health.tools || {});
   if (!tools.length) {
     el.toolGrid.innerHTML = `<p class="meta">Sem tools reportadas.</p>`;
+    return;
+  }
+
+  const available = tools.filter(([, info]) => info.available).length;
+  if (!available) {
+    el.toolGrid.innerHTML = `<p class="meta">
+      <strong>Nenhum scanner disponível neste container.</strong><br />
+      A imagem padrão é slim (sem tools) — sem isso nenhum scan real roda.
+      No <code>.env</code>, defina
+      <code>ETHOSCAN_DOCKERFILE=Dockerfile.kali</code> (recomendado) ou
+      <code>Dockerfile.tools</code> e rode
+      <code>docker compose up -d --build api worker</code>.<br />
+      Verifique com: <code>./scripts/check-install.sh</code>
+    </p>`;
     return;
   }
 
