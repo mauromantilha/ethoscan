@@ -20,6 +20,11 @@ def _dns_coverage(job: Job) -> list[dict]:
     return list(coverage.get("dns") or [])
 
 
+def _origin_ip_coverage(job: Job) -> list[dict]:
+    coverage = (job.tool_runs or {}).get("_coverage") or {}
+    return list(coverage.get("origin_ip") or [])
+
+
 def _coverage_rows(job: Job, findings: list[Finding]) -> list[str]:
     """Motivos de cobertura parcial: DNS, tool falhada ou mock (sem duplicados)."""
     rows: list[str] = []
@@ -27,6 +32,16 @@ def _coverage_rows(job: Job, findings: list[Finding]) -> list[str]:
     for item in _dns_coverage(job):
         if item.get("error"):
             rows.append(f"DNS {item.get('target')}: {item['error']}")
+    # Candidatos de IP de origem (descoberta passiva no F0): validação manual.
+    for item in _origin_ip_coverage(job):
+        candidates = item.get("origin_candidates") or []
+        if not candidates:
+            continue
+        listed = ", ".join(f"{c.get('ip')} ({c.get('source')})" for c in candidates)
+        rows.append(
+            f"Origem ({item.get('target')}, CDN {item.get('cdn', '?')}): candidatos de "
+            f"IP de origem {listed} — validar manualmente (Host/SNI) dentro do RoE."
+        )
     # Primeiro os tool_error por alvo (têm o motivo real do stderr).
     for finding in findings:
         if finding.category != "tool_error":

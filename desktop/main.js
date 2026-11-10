@@ -439,6 +439,10 @@ ipcMain.handle("api:assistantChat", async (_event, jobId, payload) =>
   apiFetch(`/api/jobs/${jobId}/assistant`, { method: "POST", body: payload }),
 );
 
+ipcMain.handle("api:discoverIp", async (_event, payload) =>
+  apiFetch("/api/discover-ip", { method: "POST", body: payload }),
+);
+
 ipcMain.handle("api:downloadReport", async (event, jobId) => {
   const config = readConfig();
   const url = `${config.apiBaseUrl}/api/jobs/${jobId}/report`;

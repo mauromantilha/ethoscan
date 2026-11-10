@@ -2,7 +2,7 @@
 
 Orquestrador local de **pentest ético** (CLI + API + dashboard + desktop + worker).
 
-> Versão **0.5.0** — mudanças/migração em [CHANGELOG.md](CHANGELOG.md); publicação em
+> Versão **0.5.1** — mudanças/migração em [CHANGELOG.md](CHANGELOG.md); publicação em
 > [docs/release-checklist.md](docs/release-checklist.md).
 
 - Pipeline **F0–F6** (gate RoE/escopo/tools → recon → enum → web → vuln → correlação → relatório)
@@ -10,6 +10,9 @@ Orquestrador local de **pentest ético** (CLI + API + dashboard + desktop + work
 - Catálogo de tools pré-configuradas (selecionáveis); adapters: Nmap, WhatWeb, Gobuster, sslscan, Nuclei, Nikto, Masscan, ZAP; Metasploit **só aux/scanner**; Burp **só lançamento GUI**
 - **Assistente LLM** (aikido): tria findings (real/falso positivo), correlaciona achados e
   conversa sobre o job — advisory-only, qualquer API OpenAI-compatível ([docs/llm-assistant.md](docs/llm-assistant.md))
+- **Descoberta passiva de IP de origem**: antes/durante cada job contra domínios atrás
+  de CDN — subdomínios comuns, MX e Certificate Transparency; candidatos listados no
+  relatório para validação manual no RoE
 - Relatório HTML + **PDF** imprimível (`GET /api/jobs/{id}/report.pdf`)
 - Worker dedicado via **Redis** (a API não bloqueia em scans longos)
 - Shell **Electron** opcional (`desktop/`) para Kali/Windows — client fino da API

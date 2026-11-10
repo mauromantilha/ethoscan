@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.5.1] — 2026-11-10
+
+Descoberta **passiva** do IP de origem (atrás de CDN/WAF) antes de um job.
+
+### Descoberta de IP de origem
+
+- `app/core/ipdiscovery.py`: técnicas somente passivas — resolução A/AAAA +
+  classificação Cloudflare (faixas oficiais com refresh best-effort + snapshot),
+  sondagem DNS de ~25 subdomínios comuns (mail, cpanel, origin, dev, staging...),
+  registros MX (via `dig`, quando disponível) e Certificate Transparency (crt.sh).
+  **Nenhum pacote é enviado aos IPs candidatos.**
+- `POST /api/discover-ip`: descoberta sob demanda (máx. 10 alvos, escopo validado
+  contra a allowlist, auditada como `ip_discovery`).
+- **F0 automático**: todo job contra domínio atrás da Cloudflare roda a descoberta
+  e registra os candidatos em `tool_runs._coverage.origin_ip`; o relatório
+  (Cobertura/limitações) lista os candidatos com a fonte e o lembrete de validação
+  manual (Host/SNI, dentro do RoE).
+- Filtro de falsos positivos: MX de SaaS de e-mail (Zoho, Google, Microsoft,
+  Proton, SES...) **não** é candidato — testado contra corretorsync.com (Zoho).
+- Desktop: botão **"Descobrir IP de origem (passivo)"** na aba Novo, com os
+  resultados renderizados antes de criar o engagement.
+- 9 testes novos (DNS/crt.sh/filtro mockados); suíte **165 passed**, ruff limpo.
+
 ## [0.5.0] — 2026-11-10
 
 Analista assistente LLM ("aikido"): triagem de findings, correlação e chat sobre o job —

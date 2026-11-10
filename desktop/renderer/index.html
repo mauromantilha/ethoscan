@@ -22,7 +22,7 @@
       <header class="hero">
         <div class="hero-top">
           <h1 class="brand">Ethoscan</h1>
-          <span class="version-label" id="appVersion">v0.5.0</span>
+          <span class="version-label" id="appVersion">v0.5.1</span>
           <button class="theme-toggle" id="btnTheme" type="button" aria-label="Alternar tema">
             Tema: sistema
           </button>
@@ -175,6 +175,12 @@
                     placeholder="dominio.com ou IP, um por linha"
                   >scanme.nmap.org</textarea>
                 </div>
+                <div class="row mt-xs">
+                  <button class="btn secondary" type="button" id="btnDiscoverIp">
+                    Descobrir IP de origem (passivo)
+                  </button>
+                </div>
+                <div class="assistant-output" id="discoverIpResults" hidden></div>
                 <div class="field">
                   <label for="intensity">Intensidade</label>
                   <select id="intensity">

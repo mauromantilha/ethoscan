@@ -4,6 +4,7 @@ import logging
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
+from ipaddress import ip_address
 
 import httpx
 from sqlalchemy.orm import Session
@@ -14,8 +15,9 @@ from app.config import get_settings
 from app.core.authz import assert_in_allowlist, assert_in_scope, assert_roe
 from app.core.callbacks import assert_safe_callback_url, encode_callback
 from app.core.correlator import correlate
+from app.core.ipdiscovery import discover_origin_ip, is_cloudflare_ip
 from app.core.reports import write_html_report, write_pdf_report
-from app.core.targets import target_resolution
+from app.core.targets import target_host, target_resolution
 from app.models import AuditEvent, Engagement, Finding, Job, JobFinding, JobStatus, Severity
 from app.queue import clear_callback, clear_cancel, get_callback, is_cancel_requested
 from app.tool_catalog import (
@@ -574,6 +576,48 @@ def _run_f0_gate(
         addresses, error = target_resolution(target)
         dns_coverage.append({"target": target, "addresses": addresses, "error": error})
     tool_runs["_coverage"] = {"dns": dns_coverage}
+
+    # Descoberta passiva de IP de origem para domínios atrás de CDN: os
+    # candidatos ficam no relatório (Cobertura) para validação manual no RoE.
+    origin_ip_coverage = []
+    for entry in dns_coverage:
+        target = entry["target"]
+        if entry["error"]:
+            continue
+        host = target_host(target)
+        try:
+            ip_address(host)
+            continue  # alvo já é IP
+        except ValueError:
+            pass
+        if not any(is_cloudflare_ip(addr) for addr in entry["addresses"]):
+            continue
+        try:
+            discovery = discover_origin_ip(host)
+        except Exception:
+            logger.warning("Descoberta de IP de origem falhou para %s", host, exc_info=True)
+            continue
+        origin_ip_coverage.append(
+            {
+                "target": target,
+                "cdn": discovery.get("cdn", ""),
+                "origin_candidates": discovery.get("origin_candidates", [])[:5],
+            }
+        )
+        if discovery.get("origin_candidates"):
+            audit(
+                db,
+                engagement.id,
+                "origin_ip_candidates",
+                {
+                    "job_id": job.id,
+                    "target": target,
+                    "candidates": [c["ip"] for c in discovery["origin_candidates"][:5]],
+                },
+                actor="worker",
+            )
+    if origin_ip_coverage:
+        tool_runs["_coverage"]["origin_ip"] = origin_ip_coverage
     for name in required:
         info = status.get(name, {})
         tool_runs[name] = {

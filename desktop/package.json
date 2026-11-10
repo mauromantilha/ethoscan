@@ -1,6 +1,6 @@
 {
   "name": "ethoscan",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "description": "Shell Electron local para o Ethoscan — dispara pentests éticos via API existente",
   "author": "Ethoscan <ethoscan@users.noreply.github.com>",

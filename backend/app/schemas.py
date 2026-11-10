@@ -294,6 +294,32 @@ class LLMTestOut(BaseModel):
     detail: str = ""
 
 
+class DiscoverIpRequest(BaseModel):
+    """Descoberta passiva de IP de origem (antes de um job)."""
+
+    targets: list[str] = Field(min_length=1, max_length=10)
+
+
+class OriginCandidateOut(BaseModel):
+    ip: str
+    host: str
+    source: str
+
+
+class DomainIpDiscoveryOut(BaseModel):
+    domain: str
+    edge_ips: list[str] = []
+    cdn: str = ""
+    origin_candidates: list[OriginCandidateOut] = []
+    notes: list[str] = []
+    passive: bool = True
+    advisory: str = ""
+
+
+class DiscoverIpResponse(BaseModel):
+    results: list[DomainIpDiscoveryOut]
+
+
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=128)
     password: str = Field(min_length=1, max_length=256)

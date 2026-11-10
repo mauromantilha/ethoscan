@@ -1,5 +1,6 @@
 import subprocess
 from datetime import UTC, datetime
+from ipaddress import ip_address
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -13,12 +14,15 @@ from app.core.orchestrator import PHASE_LABELS, audit
 from app.core.reports import write_pdf_report
 from app.core.security import credential_actor, require_api_key
 from app.core.subprocess_env import subprocess_env
+from app.core.targets import target_host
 from app.db import get_db
 from app.lab_inventory import lab_tools_inventory
 from app.models import AuditEvent, Engagement, Finding, Job, JobFinding, JobStatus, Severity
 from app.queue import enqueue_job, ping_redis, request_cancel
 from app.schemas import (
     AuditEventOut,
+    DiscoverIpRequest,
+    DiscoverIpResponse,
     EngagementCreate,
     EngagementOut,
     FindingOut,
@@ -46,6 +50,56 @@ def _audit_meta(request: Request) -> tuple[str, str | None]:
         credential_actor(request.headers.get("X-API-Key")),
         request.client.host if request.client else None,
     )
+
+
+@router.post("/discover-ip")
+def discover_ip(
+    payload: DiscoverIpRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> DiscoverIpResponse:
+    """Descoberta PASSIVA do IP de origem de domínios (antes de criar um job).
+
+    Técnicas: resolução A/AAAA + classificação Cloudflare, subdomínios comuns,
+    MX e Certificate Transparency (crt.sh). Nenhum pacote é enviado aos IPs
+    candidatos — validação manual (Host/SNI) fica a cargo do operador, no RoE.
+    """
+    from app.core.ipdiscovery import discover_origin_ip
+
+    scope = validate_scope(payload.targets)
+    assert_targets_allowed(scope, get_settings().allowlist_targets)
+
+    results = []
+    for target in scope:
+        host = target_host(target)
+        try:
+            ip_address(host)
+            results.append(
+                {
+                    "domain": host,
+                    "edge_ips": [host],
+                    "cdn": "indeterminado",
+                    "origin_candidates": [],
+                    "notes": ["Alvo é um IP, não um domínio — nada a descobrir."],
+                    "passive": True,
+                    "advisory": "—",
+                }
+            )
+            continue
+        except ValueError:
+            pass
+        results.append(discover_origin_ip(host))
+
+    actor, client_ip = _audit_meta(request)
+    audit(
+        db,
+        None,
+        "ip_discovery",
+        {"targets": scope, "candidates_total": sum(len(r["origin_candidates"]) for r in results)},
+        actor=actor,
+        client_ip=client_ip,
+    )
+    return DiscoverIpResponse(results=results)
 
 
 @router.get("/engagements", response_model=list[EngagementOut])

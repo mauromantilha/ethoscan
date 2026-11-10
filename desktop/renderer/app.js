@@ -46,6 +46,8 @@ const el = {
   toolCatalog: document.getElementById("toolCatalog"),
   toolCatalogHint: document.getElementById("toolCatalogHint"),
   btnLaunchBurp: document.getElementById("btnLaunchBurp"),
+  btnDiscoverIp: document.getElementById("btnDiscoverIp"),
+  discoverIpResults: document.getElementById("discoverIpResults"),
   updateBanner: document.getElementById("updateBanner"),
   updateStatus: document.getElementById("updateStatus"),
   btnCheckUpdate: document.getElementById("btnCheckUpdate"),
@@ -546,6 +548,46 @@ function updateAssistantAvailability(health) {
   const hasJob = Boolean(el.assistantJobSelect && el.assistantJobSelect.value);
   if (el.btnAnalyzeJob) el.btnAnalyzeJob.disabled = !llmConfigured || !hasJob;
   if (el.btnAssistantSend) el.btnAssistantSend.disabled = !llmConfigured || !hasJob;
+}
+
+async function runDiscoverIp() {
+  const raw = (el.targets.value || "")
+    .split(/[\n,]/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .slice(0, 10);
+  if (!raw.length) {
+    toast("Preencha os alvos antes de descobrir o IP", "error");
+    return;
+  }
+  if (el.btnDiscoverIp) el.btnDiscoverIp.disabled = true;
+  if (el.discoverIpResults) {
+    el.discoverIpResults.hidden = false;
+    el.discoverIpResults.innerHTML = '<p class="meta">Descoberta passiva em curso (DNS + CT)…</p>';
+  }
+  try {
+    const data = await window.ethoscan.discoverIp({ targets: raw });
+    const html = (data.results || [])
+      .map((r) => {
+        const cand = (r.origin_candidates || [])
+          .map(
+            (c) =>
+              `<div class="meta">• ${escapeHtml(c.ip)} — ${escapeHtml(c.host)} (via ${escapeHtml(c.source)})</div>`,
+          )
+          .join("");
+        return `<div class="item">
+          <strong>${escapeHtml(r.domain)}</strong>
+          <div class="meta">CDN: ${escapeHtml(r.cdn || "?")} · edge: ${escapeHtml((r.edge_ips || []).join(", ") || "—")}</div>
+          ${cand || '<div class="meta">Nenhum candidato de origem encontrado (DNS/CT não vazam o IP real).</div>'}
+        </div>`;
+      })
+      .join("");
+    el.discoverIpResults.innerHTML = html + '<p class="meta">Passivo: nenhum pacote foi enviado aos candidatos. Valide com <code>curl --resolve dominio:443:IP</code> dentro do RoE antes de escanear.</p>';
+  } catch (err) {
+    el.discoverIpResults.innerHTML = `<p class="meta">Erro: ${escapeHtml(String(err.message || err))}</p>`;
+  } finally {
+    if (el.btnDiscoverIp) el.btnDiscoverIp.disabled = false;
+  }
 }
 
 async function runLlmTest() {
@@ -1099,6 +1141,10 @@ el.assistantJobSelect?.addEventListener("change", () => {
   if (el.assistantChatLog) el.assistantChatLog.innerHTML = '<p class="meta">Pergunte ao assistente sobre o job selecionado.</p>';
   if (el.assistantAnalysis) el.assistantAnalysis.hidden = true;
   updateAssistantAvailability({ llm_enabled: llmConfigured });
+});
+
+el.btnDiscoverIp?.addEventListener("click", () => {
+  runDiscoverIp();
 });
 
 el.btnTestLlm?.addEventListener("click", () => {
