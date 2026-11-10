@@ -2,7 +2,7 @@
 
 Orquestrador local de **pentest ético** (CLI + API + dashboard + desktop + worker).
 
-> Versão **0.5.1** — mudanças/migração em [CHANGELOG.md](CHANGELOG.md); publicação em
+> Versão **0.5.2** — mudanças/migração em [CHANGELOG.md](CHANGELOG.md); publicação em
 > [docs/release-checklist.md](docs/release-checklist.md).
 
 - Pipeline **F0–F6** (gate RoE/escopo/tools → recon → enum → web → vuln → correlação → relatório)

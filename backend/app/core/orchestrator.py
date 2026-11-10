@@ -31,6 +31,15 @@ logger = logging.getLogger("ethoscan.orchestrator")
 # timeout do webhook de conclusão (best-effort: não pode travar o worker)
 CALLBACK_TIMEOUT_SECONDS = 5.0
 
+# Tools de infraestrutura não aplicáveis quando o alvo resolve apenas para IPs
+# de CDN (a edge da Cloudflare não tem SSH/SMB/AD): puladas por alvo no F0,
+# com motivo explícito na cobertura do relatório.
+CDN_INAPPLICABLE_TOOLS: dict[str, str] = {
+    "hydra": "brute-force SSH",
+    "netexec": "enum SMB",
+    "bloodhound-python": "enum AD",
+}
+
 
 # F0 = gate explícito (RoE + escopo + tools). F1–F6 = execução.
 # Tools opcionais só correm se selected_tools as incluir.
@@ -241,13 +250,50 @@ def _run_adapter_targets(
     scope_targets: list[str],
     job_dir,
     intensity: str,
+    cdn_targets: frozenset[str] = frozenset(),
 ) -> tuple[AdapterResult | None, list, str | None]:
-    """Executa um adapter contra todos os alvos (thread-safe; sem sessão DB)."""
+    """Executa um adapter contra todos os alvos (thread-safe; sem sessão DB).
+
+    Alvos atrás de CDN pulam tools de infra (SSH/SMB/AD): a edge não expõe
+    esses serviços — o skip vira achado de cobertura, não uma falha de tool.
+    """
     findings: list = []
     last: AdapterResult | None = None
     last_target: str | None = None
     for target in targets:
         assert_in_scope(target, scope_targets)
+        if adapter.name in CDN_INAPPLICABLE_TOOLS and target in cdn_targets:
+            reason = (
+                f"{adapter.name} omitida: o alvo resolve apenas para IPs de CDN "
+                f"(edge) e {CDN_INAPPLICABLE_TOOLS[adapter.name]} não é aplicável — "
+                "teste o origin com autorização do dono"
+            )
+            last = AdapterResult(
+                tool=adapter.name,
+                mocked=False,
+                command=[adapter.name],
+                error=reason,
+            )
+            findings.append(
+                RawFinding(
+                    title=f"Ferramenta {adapter.name} omitida (alvo atrás de CDN)",
+                    severity=Severity.info,
+                    target=target,
+                    tool=adapter.name,
+                    category="tool_error",
+                    description=(
+                        f"{reason}. A execução foi pulada para não desperdiçar tempo "
+                        "de job contra a edge."
+                    ),
+                    evidence=reason,
+                    remediation=(
+                        "Coordenar acesso ao origin/staging (allowlist do IP do "
+                        "scanner) para avaliar SSH/SMB/AD reais."
+                    ),
+                )
+            )
+            last_target = target
+            continue
         try:
             last = adapter.run(target, job_dir, intensity)
         except Exception as exc:
@@ -312,6 +358,10 @@ def run_pipeline(db: Session, job_id: int) -> None:
 
         _run_f0_gate(db, job, engagement, selected)
         _check_cancel(db, job)
+
+        cdn_targets = frozenset(
+            ((job.tool_runs or {}).get("_coverage") or {}).get("cdn_targets") or []
+        )
 
         job_dir = settings.artifacts_path / f"engagement-{engagement.id}" / f"job-{job.id}"
         job_dir.mkdir(parents=True, exist_ok=True)
@@ -411,6 +461,7 @@ def run_pipeline(db: Session, job_id: int) -> None:
                     list(engagement.scope_targets),
                     job_dir,
                     engagement.intensity.value,
+                    cdn_targets,
                 )
                 _record_tool_run(
                     db, job, engagement, tool_name, adapters[tool_name], result, last_target
@@ -434,6 +485,7 @@ def run_pipeline(db: Session, job_id: int) -> None:
                             list(engagement.scope_targets),
                             job_dir,
                             engagement.intensity.value,
+                            cdn_targets,
                         ): tool_name
                         for tool_name in active
                     }
@@ -618,6 +670,16 @@ def _run_f0_gate(
             )
     if origin_ip_coverage:
         tool_runs["_coverage"]["origin_ip"] = origin_ip_coverage
+
+    # Alvos que resolvem só para IPs de CDN: tools de infra (SSH/SMB/AD) serão
+    # puladas por alvo na execução — o motivo aparece na cobertura do relatório.
+    cdn_targets = [
+        entry["target"]
+        for entry in dns_coverage
+        if entry["addresses"] and all(is_cloudflare_ip(addr) for addr in entry["addresses"])
+    ]
+    if cdn_targets:
+        tool_runs["_coverage"]["cdn_targets"] = cdn_targets
     for name in required:
         info = status.get(name, {})
         tool_runs[name] = {

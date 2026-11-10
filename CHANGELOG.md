@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.5.2] — 2026-11-10
+
+Eficiência do pipeline contra alvos atrás de CDN.
+
+### Gating de tools de infra por alvo
+
+- O F0 marca alvos que resolvem **apenas para IPs de CDN** (Cloudflare) em
+  `_coverage.cdn_targets`; na execução, **hydra** (SSH), **netexec** (SMB) e
+  **bloodhound-python** (AD) são puladas **por alvo** — a edge não expõe esses
+  serviços e a execução só desperdiçava tempo de job para falhar com timeout.
+- O skip aparece no relatório (Cobertura/limitações) como achado info
+  "Ferramenta X omitida (alvo atrás de CDN)" com remediação: coordenar acesso
+  ao origin/staging (allowlist do scanner) para avaliar SSH/SMB/AD reais.
+- Alvos diretos (IP ou hostname sem CDN) continuam rodando todas as tools.
+- Baseado no job #6: hydra gastava ~2 min tentando SSH no IP da Cloudflare.
+- 3 testes novos; suíte **168 passed**, ruff limpo.
+
 ## [0.5.1] — 2026-11-10
 
 Descoberta **passiva** do IP de origem (atrás de CDN/WAF) antes de um job.
