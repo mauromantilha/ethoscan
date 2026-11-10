@@ -3,33 +3,59 @@
 > Documento operacional para **retomar o trabalho** (agente ou humano) sem reler a conversa toda.
 > Atualize ao mudar o estado. **Nunca coloque segredos aqui**: valores vivem no `.env` (gitignored).
 
-## Onde o projeto está (2026-11-10, pós-release)
+## Onde o projeto está (2026-11-10, fim da sessão)
 
-- **Releases 0.4.0 → 0.5.1 publicadas** (GitHub Releases + APT repo; assets `.deb`/AppImage/
-  `.exe`/`SHA256SUMS.txt`; CI smoke e desktop-release verdes). `main` = `b20bca4` (tag `v0.5.1`).
+- **Releases v0.5.0 e v0.5.1 publicadas** (GitHub Releases + APT repo; assets `.deb`/AppImage/
+  `.exe`/`SHA256SUMS.txt`; smoke e desktop-release verdes; v0.5.0 refeita após fix shellcheck).
+  **v0.5.2 (gating CDN) está no `main` SEM tag** — só backend, sem mudança de desktop;
+  taggear quando houver mudança de UI para não rebuildar Electron à toa. `main` = `fa37dc0`.
 - **v0.5.0**: 2FA TOTP (login local + campo Código 2FA no desktop, `pyotp`), imagem Kali
-  (`Dockerfile.kali`, catálogo completo + fix EPERM de file capabilities que quebrava o nmap),
-  lab de inventário (`docker-compose.lab.yml` + `scripts/lab-tools.sh`, `network_mode: host`),
-  correções de adapters/relatório (Cobertura/limitações, fim dos findings falsos), assistente
-  LLM **aikido** (`POST /api/jobs/{id}/analyze`, `/assistant`, `/api/llm/test`; aba Assistente
-  no desktop; Mistral/OpenAI/Groq/Ollama via `ETHOSCAN_LLM_*`; advisory-only), botão
-  **Testar API**, `scripts/check-install.sh` (doutor de instalação) e quickstart no README.
+  (`Dockerfile.kali`, catálogo completo + fix EPERM de file capabilities que quebrava o nmap
+  com `exit 126`), lab de inventário (`docker-compose.lab.yml` + `scripts/lab-tools.sh`,
+  `network_mode: host`), correções de adapters/relatório (Cobertura/limitações, fim dos
+  findings falsos), assistente LLM **aikido** (`POST /api/jobs/{id}/analyze`, `/assistant`,
+  `/api/llm/test`; aba Assistente no desktop; advisory-only), botão **Testar API**,
+  `scripts/check-install.sh` (doutor de instalação) e quickstart no README.
 - **v0.5.1**: descoberta **passiva** de IP de origem (`app/core/ipdiscovery.py`) — subdomínios
-  comuns, MX e Certificate Transparency; `POST /api/discover-ip`; F0 registra candidatos em
-  `_coverage.origin_ip` (relatório lista com fonte); filtro de SaaS de e-mail (Zoho etc.);
-  botão **Descobrir IP de origem** na aba Novo do desktop.
-- **Repositório APT** ativo em <https://mauromantilha.github.io/ethoscan> (branch `gh-pages`,
-  chave GPG `F14D 7665 D743 07E3 33F6 CD65 35C1 D6BE 8BC7 72DD`) — workflows `apt-repo`
-  atualizam a cada release.
-- Suíte: **165 passed**, cobertura 80.7% (mín. 70%). CI (`smoke.yml`): ruff, pytest+cobertura,
-  build frontend, package desktop, shellcheck. Tests herméticos (conftest limpa `ETHOSCAN_LLM_*`).
-- Stack Docker do host a correr com `Dockerfile.kali` (15/15 tools `available: true`,
-  `llm_enabled: true` com Mistral `mistral-small-latest`); login local `mauromantilha` + 2FA.
-- `.env`: auth ligada, hash bcrypt + TOTP, `ETHOSCAN_DOCKERFILE=Dockerfile.kali`,
-  `ETHOSCAN_LLM_*` (Mistral). Segredos **não** versionados (`.env` gitignored, modo 0600).
-- Lição do dia: jobs contra alvos **atrás da Cloudflare** medem a edge, não a origem
-  (cf. jobs #1–#3 contra advogasync/corretorsync); o caminho é allowlist do IP do scanner
-  ou origin/staging — nunca bypass de WAF.
+  comuns, MX e Certificate Transparency (crt.sh); `POST /api/discover-ip`; F0 registra
+  candidatos em `_coverage.origin_ip` (relatório lista com fonte); filtro de SaaS de e-mail
+  (Zoho etc. — mx2.zoho.com NÃO é origem); botão **Descobrir IP de origem** na aba Novo.
+- **v0.5.2**: **gating de tools de infra por alvo** — F0 marca em `_coverage.cdn_targets`
+  alvos que resolvem só para IPs Cloudflare; hydra (SSH), netexec (SMB) e bloodhound (AD)
+  são pulados por alvo com achado "omitida (alvo atrás de CDN)" na cobertura (não é falha).
+  Origem: job #6 gastou ~2 min de hydra em SSH no IP da CF. Alvos diretos rodam tudo.
+- **Prompts do aikido endurecidos 2×**: (1) nunca sugerir bypass/evasão de WAF — caminho é
+  acesso autorizado ao origin (allowlist/origin/sessão do dono); (2) não usar o TERMO
+  "bypass de WAF" (o Mistral usou no job #6 apesar do caminho certo).
+- **Validação em produção (job #6, stack novo)**: nmap OK (4 portas CF), nuclei OK (timeout
+  600s), 0 falsos mediums, XSS "Post Nuke" sumiu; aikido validado 2× contra análise manual
+  (jobs #3 e #6) — incluiu pegar duplicata do Nikto (#211/#212 X-Content-Type-Options).
+- **Suíte**: **168 passed**, cobertura ~81% (mín. 70%). CI: ruff, pytest+cobertura, build
+  frontend, package desktop, shellcheck (conftest limpa `ETHOSCAN_LLM_*`; LLM mockado).
+- **Stack do host** (mauro@mksbr): Docker Kali rodando, 15/15 tools real, Redis/worker ok,
+  `llm_enabled: true` com **Mistral** `mistral-small-latest` (`api.mistral.ai/v1`);
+  desktop instalado **0.5.0** (0.5.1 publicado mas não instalado local); usuário sudo fora
+  do grupo docker (usar `sudo docker compose`).
+- `.env`: auth ligada, utilizador local `mauromantilha` + hash bcrypt + 2FA TOTP,
+  `ETHOSCAN_DOCKERFILE=Dockerfile.kali`, `ETHOSCAN_LLM_*` (Mistral). Segredos **não**
+  versionados (`.env` gitignored, modo 0600).
+- Lições do dia: (1) alvos **atrás da Cloudflare** medem a edge, não a origem — caminho é
+  allowlist do IP do scanner ou origin/staging; (2) file caps fora do bounding set do worker
+  = EPERM no exec (nmap do Kali); (3) env vars são lidas na CRIAÇÃO do container — trocar
+  `.env` exige `docker compose up -d`, não `restart`.
+
+## Pendências conhecidas (próxima sessão)
+
+- **Rebuild da API p/ 0.5.2** (gating CDN + prompts): `sudo docker compose up -d --build
+  api worker` — usuário ainda não rodou.
+- Rodar job novo contra corretorsync para validar o gating (cobertura deve mostrar hydra/
+  netexec "omitida" em vez de falha, e o job ~4 min mais rápido).
+- **Liberar IP do scanner no painel da Cloudflare** do corretorsync/advogasync — a descoberta
+  passiva provou que a origem NÃO vaza (0 candidatos; Zoho filtrado). Sem isso, jobs
+  continuam medindo só a edge.
+- Ideias não implementadas: adapters runnable de `ffuf`/`subfinder`/`httpx`/`dalfox`/
+  `testssl.sh`; sqlmap sem crawl (só query GET); ZAP só quick scan; 1 worker = 1 job por vez.
+- Desktop 0.5.1 publicado mas host local ainda no 0.5.0 (sem botão Descobrir IP).
 
 ## Entregue nos últimos PRs
 
